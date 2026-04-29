@@ -5,8 +5,9 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "latest",
     "@google/generative-ai": "latest",
-    "@whiskeysockets/baileys": "^6.5.0",
-    "qrcode-terminal": "latest"
+    "pino": "latest",
+    "qrcode": "latest"
   }
 }
