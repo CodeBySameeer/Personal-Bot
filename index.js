@@ -5,7 +5,7 @@ const http = require('http');
 
 // ========== REPLACE THESE ==========
 const API_KEY = 'AIzaSyAuOyzdGVuuPsppkG_tJV8SrJRyB7ezcdI';
-const PHONE_NUMBER = '9766884391';   // no + sign
+const PHONE_NUMBER = '9779766884391';   // no + sign
 // ===================================
 
 const genAI = new GoogleGenerativeAI(API_KEY);
