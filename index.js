@@ -2,10 +2,10 @@ const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, Disconne
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pino = require('pino');
 const http = require('http');
+const qrcode = require('qrcode');   // for generating QR as an image
 
-// ========== REPLACE THESE ==========
+// ========== REPLACE THIS ==========
 const API_KEY = 'AIzaSyAuOyzdGVuuPsppkG_tJV8SrJRyB7ezcdI';
-const PHONE_NUMBER = '9779766884391';   // no + sign
 // ===================================
 
 const genAI = new GoogleGenerativeAI(API_KEY);
@@ -14,7 +14,8 @@ Always reply in Romanized Nepali. Keep replies short and casual.
 Use words like timi, malai, huncha, hai. Match the tone. Never mention AI.`;
 const chatHistory = new Map();
 
-let alreadyRequestedPairingCode = false;   // stop asking multiple times
+// Store the latest QR string (null when logged in)
+let latestQR = null;
 
 async function getAIReply(chatId, text) {
     if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
@@ -52,11 +53,18 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
     });
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+    sock.ev.on('connection.update', (update) => {
+        const { qr, connection, lastDisconnect } = update;
+
+        if (qr) {
+            // Save the QR string to display on the web page
+            latestQR = qr;
+            console.log('🔹 QR code received. Visit /qr to scan it.');
+        }
 
         if (connection === 'open') {
             console.log('✅ Bot connected! Will reply to all messages.');
+            latestQR = null;   // no longer needed
             return;
         }
 
@@ -65,31 +73,12 @@ async function startBot() {
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log('Connection closed. Reconnecting:', shouldReconnect);
             if (shouldReconnect) {
-                // Restart the socket without asking for a new pairing code
-                startBot();
+                startBot();   // reconnect
             }
             return;
         }
     });
 
-    // Only request pairing code if we are not already logged in
-    if (!state.creds || !state.creds.me) {
-        // Wait for handshake, then request once
-        setTimeout(async () => {
-            if (alreadyRequestedPairingCode) return;
-            alreadyRequestedPairingCode = true;
-            try {
-                const code = await sock.requestPairingCode(PHONE_NUMBER.trim());
-                console.log('🔥 PAIRING CODE:', code);
-                console.log('👉 Open WhatsApp → Settings → Linked Devices → Link a Device');
-                console.log('👉 Choose "Link with phone number" and enter the code above');
-            } catch (e) {
-                console.log('Failed to get pairing code:', e.message);
-            }
-        }, 5000);
-    }
-
-    // Listen for new messages
     sock.ev.on('messages.upsert', async (msg) => {
         const m = msg.messages[0];
         if (!m.message || msg.type !== 'notify' || m.key.fromMe) return;
@@ -105,12 +94,32 @@ async function startBot() {
     sock.ev.on('creds.update', saveCreds);
 }
 
-// ---------- Simple HTTP server to keep Render happy ----------
+// ---------- HTTP server for health & QR ----------
 const PORT = process.env.PORT || 3000;
-const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot is running');
+const server = http.createServer(async (req, res) => {
+    if (req.url === '/qr' && latestQR) {
+        // Generate a QR code image and display it
+        const qrImage = await qrcode.toDataURL(latestQR);
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`
+            <html>
+            <head><title>Scan QR to connect</title></head>
+            <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
+                <h1>Scan this QR code with WhatsApp</h1>
+                <img src="${qrImage}" alt="QR Code" style="max-width:300px;"/>
+                <p>Open WhatsApp → Settings → Linked Devices → Link a Device → Scan QR</p>
+            </body>
+            </html>
+        `);
+    } else if (req.url === '/qr' && !latestQR) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<h2>✅ Already logged in. No QR needed.</h2>');
+    } else {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Bot is running');
+    }
 });
+
 server.listen(PORT, () => {
     console.log(`🌐 Health server running on port ${PORT}`);
 });
