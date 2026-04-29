@@ -10,7 +10,7 @@ const API_KEY = 'AIzaSyCWmSCH5XqzlIbbl33peiPf8IaHRmEhYOA';
 // Map numbers (international, no +) OR WhatsApp names to a description of that person
 const ALLOWED_CONTACTS = {
     // Numbers
-    "Zz Bachhaa❤️": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
+    "Zz Bachhaa❤️": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
     "Kalikoteeeyy Gangggg": "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
     // Names (case‑insensitive)
     "sital": "she is classmate of my BE class",
