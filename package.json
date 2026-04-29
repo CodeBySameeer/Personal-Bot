@@ -1,0 +1,12 @@
+{
+  "name": "nepali-ai-bot",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "latest",
+    "@whiskeysockets/baileys": "^6.5.0",
+    "qrcode-terminal": "latest"
+  }
+}
