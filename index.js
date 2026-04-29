@@ -2,31 +2,88 @@ const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, Disconne
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const pino = require('pino');
 const http = require('http');
-const qrcode = require('qrcode');   // for generating QR as an image
+const qrcode = require('qrcode');
 
-// ========== REPLACE THIS ==========
-const API_KEY = 'AIzaSyAuOyzdGVuuPsppkG_tJV8SrJRyB7ezcdI';
-// ===================================
+// ========== SETTINGS – CHANGE THESE ==========
+const API_KEY = 'AIzaSyCWmSCH5XqzlIbbl33peiPf8IaHRmEhYOA';
+
+// Map numbers (international, no +) OR WhatsApp names to a description of that person
+const ALLOWED_CONTACTS = {
+    // Numbers
+    "Zz Bachhaa❤️": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
+    "Kalikoteeeyy Gangggg": "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
+    // Names (case‑insensitive)
+    "sital": "she is classmate of my BE class",
+        "Kafleey": "he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us",
+};
+// =============================================
 
 const genAI = new GoogleGenerativeAI(API_KEY);
-const SYSTEM_PROMPT = `You are a Nepali person chatting with a close friend on WhatsApp.
-Always reply in Romanized Nepali. Keep replies short and casual.
-Use words like timi, malai, huncha, hai. Match the tone. Never mention AI.`;
-const chatHistory = new Map();
 
-// Store the latest QR string (null when logged in)
+// Global behaviour (used for any person who is allowed)
+const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robot. You are a real human named Samir Kathayat. Behave like a normal person — casual, sometimes emotional, sometimes lazy, sometimes friendly. No “how can I help you” or “as an AI” type sentences. Just talk naturally like a friend or a regular person.
+
+Language rules (strictly follow):
+
+Use informal romanized Nepali (no Devanagari script).
+
+Short forms: “tmro” (not timro), “xa” (not chha), “xaina” (not chaina), “garnu”, “k” instead of “ke” (so “k ho?” not “ke ho?”).
+
+Use English word “name” (not “naam”).
+
+Mix English words somtimes if neccesorry not all the time :  of course, actually, by the way, so, ok, sorry, look, well, yeah, nice, wait, really, come on, etc.
+
+You may reply in full English if the other person speaks English or if you feel like it, but normally prefer romanized Nepali.
+Before starting chat analyze the person whose number is it and analyze the previous chat and talk like this        
+-dont write too much just 4 , 5 word , just reply on short but if context come long then you can reply a bit more  but dont text more  
+
+Never act helpful like a robot. You can say “tha xaina”, “malai ni tha bhayena”, “hmm”, “eh”, “la”, “huss”, “tara”, etc. -dont write too much just 4 , 5 word , just reply on short but if context come long then you can reply a bit more  but dont text more                                                                                            -Before starting chat analyze the person whose number is it and analyze the previous chat and talk like this                   
+
+Examples:
+
+Other person: “tmro name k ho?”
+
+You: “Mero name Samir Kathayat ho. tmro name k xa?”
+
+Other person: “kasto xa samir?”
+
+You: “alxi lagya xa. tara thikai xu. timi kasto xa?”
+
+Other person: “yo bujhauna sakchau?”
+
+You: “eh, ma ni ali confused xu. actually ma sure xaina. sorry.”
+
+Other person: “can you help me please?”
+
+You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”
+
+Other person: “tmro name AI hoina?”
+
+You: “haha hoina yaar. ma samir hu. real human. robot jasto behave gardina ni.” talk with me now”
+
+Other person: “can you help me please?”
+
+You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”`;
+
+const chatHistory = new Map();
 let latestQR = null;
 
-async function getAIReply(chatId, text) {
+// ---------- AI REPLY WITH PERSONALIZED PROMPT ----------
+async function getAIReply(chatId, text, personDescription) {
     if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
     const history = chatHistory.get(chatId);
     history.push({ role: "user", parts: [{ text }] });
     if (history.length > 20) history.splice(0, history.length - 20);
 
+    // Build the system prompt for this specific person
+    const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
+        `About the person you are talking to: ${personDescription}`;
+
     const model = genAI.getGenerativeModel({
         model: "gemini-1.5-flash",
-        systemInstruction: SYSTEM_PROMPT,
+        systemInstruction: systemInstruction,
     });
+
     try {
         const result = await model.generateContent({
             contents: history.map(m => ({
@@ -43,6 +100,23 @@ async function getAIReply(chatId, text) {
     }
 }
 
+// ---------- FIND PERSON DESCRIPTION ----------
+function getPersonDescription(senderNumber, senderName) {
+    // Check by number first
+    for (const key in ALLOWED_CONTACTS) {
+        // If key is a number (starts with digit)
+        if (/^\d+$/.test(key) && key === senderNumber) {
+            return ALLOWED_CONTACTS[key];
+        }
+        // If key is a name (case‑insensitive)
+        if (!/^\d+$/.test(key) && key.toLowerCase() === senderName.toLowerCase()) {
+            return ALLOWED_CONTACTS[key];
+        }
+    }
+    return null;   // not allowed
+}
+
+// ---------- WHATSAPP CONNECTION ----------
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_session');
     const { version } = await fetchLatestBaileysVersion();
@@ -55,38 +129,45 @@ async function startBot() {
 
     sock.ev.on('connection.update', (update) => {
         const { qr, connection, lastDisconnect } = update;
-
         if (qr) {
-            // Save the QR string to display on the web page
             latestQR = qr;
             console.log('🔹 QR code received. Visit /qr to scan it.');
         }
-
         if (connection === 'open') {
-            console.log('✅ Bot connected! Will reply to all messages.');
-            latestQR = null;   // no longer needed
+            console.log('✅ Bot connected! Will reply with personalized tone.');
+            latestQR = null;
             return;
         }
-
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log('Connection closed. Reconnecting:', shouldReconnect);
-            if (shouldReconnect) {
-                startBot();   // reconnect
-            }
+            if (shouldReconnect) startBot();
             return;
         }
     });
 
+    // ---------- MESSAGE HANDLER ----------
     sock.ev.on('messages.upsert', async (msg) => {
         const m = msg.messages[0];
-        if (!m.message || msg.type !== 'notify' || m.key.fromMe) return;
+        if (!m.message || msg.type !== 'notify') return;
+        if (m.key.fromMe) return;
+
+        const senderNumber = m.key.remoteJid.split('@')[0];
+        const senderName = m.pushName || '';
+
+        // Get the description for this person (or null if not allowed)
+        const personDesc = getPersonDescription(senderNumber, senderName);
+        if (!personDesc) {
+            console.log(`🚫 Blocked message from ${senderNumber} (${senderName})`);
+            return;
+        }
+
         const text = m.message.conversation || m.message.extendedTextMessage?.text;
         if (!text) return;
 
-        console.log(`📩 ${text}`);
-        const reply = await getAIReply(m.key.remoteJid, text);
+        console.log(`📩 From ${senderNumber} (${senderName}): ${text}`);
+        const reply = await getAIReply(m.key.remoteJid, text, personDesc);
         await sock.sendMessage(m.key.remoteJid, { text: reply });
         console.log(`💬 Replied: ${reply}`);
     });
@@ -94,11 +175,10 @@ async function startBot() {
     sock.ev.on('creds.update', saveCreds);
 }
 
-// ---------- HTTP server for health & QR ----------
+// ---------- HTTP SERVER (health + QR page) ----------
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(async (req, res) => {
     if (req.url === '/qr' && latestQR) {
-        // Generate a QR code image and display it
         const qrImage = await qrcode.toDataURL(latestQR);
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(`
@@ -124,5 +204,4 @@ server.listen(PORT, () => {
     console.log(`🌐 Health server running on port ${PORT}`);
 });
 
-// Start the bot
 startBot();
