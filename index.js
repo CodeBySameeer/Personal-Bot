@@ -148,10 +148,15 @@ async function startBot() {
     const text = m.message.conversation || m.message.extendedTextMessage?.text;
     if (!text) return;
 
-    console.log(`📩 From ${senderNumber} (${senderName}): ${text}`);
-    const reply = await getAIReply(m.key.remoteJid, text, personDesc);
-    await sock.sendMessage(m.key.remoteJid, { text: reply });
-    console.log(`💬 Replied: ${reply}`);
+console.log(`📩 From ${senderNumber} (${senderName}): ${text}`);
+const reply = await getAIReply(m.key.remoteJid, text, personDesc);
+
+// 🔹 Wait 3 to 5 seconds before replying (random)
+const delay = Math.floor(Math.random() * 2000) + 3000;   // 3000–4999 ms
+await new Promise(resolve => setTimeout(resolve, delay));
+
+await sock.sendMessage(m.key.remoteJid, { text: reply });
+console.log(`💬 Replied: ${reply}`);
   });
 
   sock.ev.on("creds.update", saveCreds);
