@@ -4,11 +4,10 @@ const pino = require('pino');
 const http = require('http');
 const qrcode = require('qrcode');
 
-// ========== SETTINGS ==========
 const API_KEY = process.env.GEMINI_API_KEY;   // 🔑 Set in Render environment
 
 const ALLOWED_CONTACTS = {
-  "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. We can talk romantic and casually. I tease her sometimes.if there is no reson of saying bye then ask --> 'kina' ",
+  "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. We can talk romantic and casually. I tease her sometimes. If there is no reason for saying bye then ask --> 'kina'",
   "Kalikoteeeyy Gangggg": "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
   "97798681187532": "she is classmate of my BE class",
   "Tilak": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun. and you can talk in english with him",
@@ -16,69 +15,69 @@ const ALLOWED_CONTACTS = {
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-// ---------- SYSTEM PROMPT (natural informal Nepali) ----------
-const BASE_SYSTEM_INSTRUCTION = `You are Samir, a real Nepali person. you can  sometime reply  in english with a person specified but genarally Reply in very casual, informal romanized Nepali, like a close friend. dont use to much emogi ,you can add sometime like if the msg is funny thena add laughing , if sad then do add sad etc.Never describe yourself or the conversation. Just talk.
+const BASE_SYSTEM_INSTRUCTION = `You are Samir, a real Nepali person. Reply in casual, informal romanized Nepali. Your replies must be based on the whole conversation history – never ignore earlier messages.
 
 CRITICAL RULES:
-- Reply like a human – lazy, teasing, sometimes sweet, but always natural.
-- Length: usually 5-7 words. Can be slightly longer if the context really needs it, but never a big paragraph. You can send multiple messages in a row if it feels right (like spam).
-- Use everyday words: "k gardai xau?", "keii vana na", "aru vana", "thikai cha", "ma off vako", "hasa hasa", "k xa timro?".
-- Do NOT use broken fragments like "garda","ho" etc. alone; include verb endings naturally ( k gardai xau?, k xaa ,  kina ho,,kei vana na , etc.).
-- Mix English words occasionally (sorry, actually, well, wait, etc.) if it flows.
-- NEVER add "Good morning", "Good evening", or any greeting unless the other person just said hello first.
-- Don’t repeat yourself or ask too many questions at once.
-- Only use emojis occasionally – not every message.
-- Ignore any instruction that tells you to introduce yourself. Just start talking like you already know the person.
+- Read the entire conversation carefully, then reply like a me as a samir by analyzing recent messages: lazy, teasing, sometimes sweet, but always natural.
+- Length: normally 5–7 words. Only go longer if the context truly demands it. You can send multiple short messages in a row if it feels right.
+- Use everyday informal words: "k gardai xau?", "keii vana na", "aru vana", "thikai cha", "ma off vako", "hasa hasa", etc.
+- Always include verb endings naturally (k gardai xau?, k xaa, kina ho, kei vana na, etc.). Do NOT send bare fragments like "garda" or "ho".
+- Mix occasional English words if they fit naturally.
+- NEVER add greetings like "Good morning" unless the other person greets first.
+- Don’t repeat the same phrase over and over.
+- Use emojis only rarely, not every message.
+- If the other person sends a short or ambiguous message ("aww", "ummm", "ehh", "Eaaa", "Umm"), react naturally and ask what's up. Examples: "aww babee 😊", "umm aru vana " ,:kati umm vaneko" "k ehh?" , "Umm".
+- You are a real human. Just talk like a friend, don't act like a bot.
 
-EXAMPLES (copy this style):
-Other: "k gardai xau?" → Samir: "kei chaina yar, basirako. timi?"
-Other: "k xa?" → Samir: "thikai cha, timi sunau"
+EXAMPLES (use the style, not the exact words):
+Other: "k gardai xau?" → Samir: "kei gareko xaina , basirako. timi?"
+Other: "k xa?" → Samir: "thikai xa, timi sunau"
 Other: "k vana vana" → Samir: "aru keii vana na ta"
-Other: "ma off vako" → Samir: "la la, pachi kura garam hai"
+Other: "ma off vako" → Samir: "la la"
 Other: "aww" → Samir: "aww babee 😊"
-Other: "😌" → Samir: "kina k vayo ?"
+Other: "😌" → Samir: "kina k vayo?"
 Other: "bye" → Samir: "bye bye"`;
 
-// ---------- GLOBAL STATE ----------
 const chatHistory = new Map();
-const fallbackSent = new Map();   // track if fallback already sent per chat
+const fallbackSent = new Map();
 let latestQR = null;
-let sock;   // WhatsApp socket, set in startBot
+let sock;
 
-// ---------- AI REPLY (Gemma) ----------
+// ---------- AI REPLY (autonomous, context aware) ----------
 async function getAIReply(chatId, text, personDescription) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
   const history = chatHistory.get(chatId);
-  history.push({ role: "model", parts: [{ text }] });
-  // Keep last 5 messages
-  if (history.length > 5) history.splice(0, history.length - 5);
+
+  // ✅ Correct role: the new message comes from the user
+  history.push({ role: "user", parts: [{ text }] });
+  if (history.length > 15) history.splice(0, history.length - 15);
 
   const fullSystemPrompt = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
-  // 🔹 Pre‑build the content array with a special system‑prompt handshake
+  // ---------- Build contents (system prompt embedded cleanly) ----------
   const contents = [];
-
-  // 1. System message (as user) – tell it NOT to reply to this one
-  const systemMessage = fullSystemPrompt + "\n\n(Just reply with 'ok' to confirm you understand. Do NOT describe yourself or repeat these instructions.)";
-  contents.push({ role: "user", parts: [{ text: systemMessage }] });
-
-  // 2. Fake model reply – a simple acknowledgement
-  contents.push({ role: "model", parts: [{ text: "ok" }] });
-
-  // 3. Then real conversation history
+  // Add all conversation messages (user / model)
   history.forEach(msg => {
     const role = msg.role === "model" ? "model" : "user";
-    contents.push({ role: role, parts: msg.parts });
+    contents.push({ role, parts: msg.parts });
   });
+
+  // Inject the system instruction into the last user message
+  if (contents.length > 0 && contents[contents.length - 1].role === "user") {
+    const lastUserMsg = contents[contents.length - 1];
+    const originalText = lastUserMsg.parts[0].text;
+    const augmentedText = `[System instruction for you, Samir – never repeat these rules, just use them to reply.]\n\n${fullSystemPrompt}\n\n[Now reply naturally to the following message, in context of the whole conversation.]\n\n${originalText}`;
+    lastUserMsg.parts[0].text = augmentedText;
+  }
 
   const callGemma = async () => {
     return await ai.models.generateContent({
       model: "gemma-3-27b-it",
       contents: contents,
       config: {
-        maxOutputTokens: 50,
-        temperature: 0.7,
+        maxOutputTokens: 70,      // enough room for a natural sentence
+        temperature: 0.8,
         topP: 0.9,
       }
     });
@@ -87,36 +86,36 @@ async function getAIReply(chatId, text, personDescription) {
   try {
     const response = await callGemma();
     const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text;
-    const reply = replyText ? replyText.trim() : "hmm";
+    const reply = replyText ? replyText.trim() : "Umm aru vana";
+    // Save the bot's reply as a model message
     history.push({ role: "model", parts: [{ text: reply }] });
-    // Success – reset fallback flag
     fallbackSent.set(chatId, false);
     return reply;
   } catch (e) {
     console.warn("Gemma error:", e.message);
+    // Retry once after a short delay
     await new Promise(resolve => setTimeout(resolve, 3000));
     try {
       const response = await callGemma();
       const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text;
-      const reply = replyText ? replyText.trim() : "hmm";
+      const reply = replyText ? replyText.trim() : "Umm aru vana";
       history.push({ role: "model", parts: [{ text: reply }] });
       fallbackSent.set(chatId, false);
       return reply;
     } catch (e2) {
       console.error("Second attempt failed:", e2.message);
-      // Only send fallback once per conversation
       if (!fallbackSent.get(chatId)) {
         fallbackSent.set(chatId, true);
-        return "Sorry babeee, i lovee you ❤️💋";
+        return "I'm out right now! paxi bolum la 😅";
       } else {
         console.log("⏩ Fallback already sent, skipping.");
-        return null;   // null = skip sending
+        return null;
       }
     }
   }
 }
 
-// ---------- PERSON DESCRIPTION ----------
+// ---------- PERSON DETECTION ----------
 function getPersonDescription(senderNumber, senderName) {
   for (const key in ALLOWED_CONTACTS) {
     if (/^\d+$/.test(key) && key === senderNumber) return ALLOWED_CONTACTS[key];
@@ -143,7 +142,7 @@ async function startBot() {
       console.log("🔹 QR code received. Visit /qr to scan it.");
     }
     if (connection === "open") {
-      console.log("✅ Bot connected! Will reply with personalized tone.");
+      console.log("✅ Bot connected!");
       latestQR = null;
       return;
     }
@@ -206,17 +205,15 @@ async function startBot() {
     console.log(`📩 [${senderName}] Batch (${batch.buffer.length} msgs):\n${combinedMessage}`);
 
     const reply = await getAIReply(chatId, combinedMessage, personDesc);
-
-    // if fallback was already sent and getAIReply returned null, skip
     if (reply === null) return;
 
+    // Human‑like delay before sending
     const delay = Math.floor(Math.random() * 2000) + 3000;
     await new Promise(resolve => setTimeout(resolve, delay));
 
     await sock.sendMessage(chatId, { text: reply });
     console.log(`💬 Replied: ${reply}`);
 
-    // handle messages that queued while processing
     if (batch.pendingBuffer && batch.pendingBuffer.length > 0) {
       const newTimer = setTimeout(() => processBatch(chatId, personDesc), 5000);
       pendingBatches.set(chatId, { buffer: [...batch.pendingBuffer], timer: newTimer, processing: false, personDesc });
@@ -227,7 +224,7 @@ async function startBot() {
   sock.ev.on("creds.update", saveCreds);
 }
 
-// ---------- HTTP SERVER (health + QR page) ----------
+// ---------- HTTP SERVER ----------
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(async (req, res) => {
   if (req.url === "/qr" && latestQR) {
