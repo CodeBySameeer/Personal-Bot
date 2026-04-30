@@ -48,6 +48,7 @@ const chatHistory = new Map();
 let latestQR = null;
 
 // ---------- AI REPLY (with retry) ----------
+// ---------- AI REPLY (Gemma, without system instruction field) ----------
 async function getAIReply(chatId, text, personDescription) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
   const history = chatHistory.get(chatId);
@@ -57,15 +58,26 @@ async function getAIReply(chatId, text, personDescription) {
   const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
+  // Prepend system instruction to the first user message
+  const contents = history.map((m, idx) => {
+    if (idx === 0 && m.role === "user") {
+      return {
+        role: "user",
+        parts: [{ text: systemInstruction + "\n\n" + m.parts[0].text }]
+      };
+    }
+    return {
+      role: m.role === "model" ? "model" : "user",
+      parts: m.parts
+    };
+  });
+
   const callGemini = async () => {
     return await ai.models.generateContent({
-      model: "gemma-3-27b-it",   // stable model
-      contents: history.map(m => ({
-        role: m.role === "model" ? "model" : "user",
-        parts: m.parts
-      })),
+      model: "gemma-3-27b-it",   // ✅ Gemma model
+      contents: contents,
       config: {
-        systemInstruction: systemInstruction,
+        // ❗ No systemInstruction field – Gemma doesn't support it
         maxOutputTokens: 150,
         temperature: 0.9,
       }
@@ -73,14 +85,12 @@ async function getAIReply(chatId, text, personDescription) {
   };
 
   try {
-    // First attempt
     const response = await callGemini();
     const reply = response.candidates[0].content.parts[0].text.trim();
     history.push({ role: "model", parts: [{ text: reply }] });
     return reply;
   } catch (e) {
     console.warn("AI first attempt failed:", e.message);
-    // Retry once if temporary error (503, 429, UNAVAILABLE)
     if (e.message.includes('503') || e.message.includes('429') || e.message.includes('UNAVAILABLE')) {
       console.log('⏳ Retrying in 5 seconds...');
       await new Promise(resolve => setTimeout(resolve, 5000));
@@ -93,7 +103,6 @@ async function getAIReply(chatId, text, personDescription) {
         console.error("AI retry also failed:", e2.message);
       }
     }
-    // Fallback if both attempts fail
     return "Sorry babeee, i lovee you ❤️💋";
   }
 }
