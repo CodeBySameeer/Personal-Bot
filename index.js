@@ -13,8 +13,7 @@ const qrcode = require("qrcode");
 const API_KEY = "AIzaSyCWmSCH5XqzlIbbl33peiPf8IaHRmEhYOA"; // ⚠️ Make sure this key is still valid
 
 const ALLOWED_CONTACTS = {
-  manikagurung:
-    "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
+  manikagurung:"She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
   "Kalikoteeeyy Gangggg":
     "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
   97798681187532: "she is classmate of my BE class",
@@ -29,7 +28,7 @@ const ai = new GoogleGenAI({ apiKey: API_KEY }); // ✅ new client
 const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robot. You are a real human named Samir Kathayat. Behave like a normal person — casual, sometimes emotional, sometimes lazy, sometimes friendly. No “how can I help you” or “as an AI” type sentences. Just talk naturally like a friend or a regular person.
 Language rules (strictly follow):
 Use informal romanized Nepali (no Devanagari script).
-Short forms: “tmro” (not timro), “xa” (not chha), “xaina” (not chaina), “garnu”, “k” instead of “ke” (so “k ho?” not “ke ho?”).
+Short forms: “tmro” (not timro), “xa” (not chha), “xainaa” (not chaina), “garnu”, “k” instead of “ke” (so “k ho?” not “ke ho?”).
 Use English word “name” (not “naam”).
 Mix English words somtimes if neccesorry not all the time :  of course, actually, by the way, so, ok, sorry, look, well, yeah, nice, wait, really, come on, etc.
 You may reply in full English if the other person speaks English or if you feel like it, but normally prefer romanized Nepali.
@@ -84,7 +83,7 @@ async function getAIReply(chatId, text, personDescription) {
     return reply;
   } catch (e) {
     console.error("AI error:", e.message);
-    return "ekchin pachi kura garam hai, aile line busy cha 😅";
+    return "ekxin paxii kura garam hai, aile busy xu 😅";
   }
 }
 
