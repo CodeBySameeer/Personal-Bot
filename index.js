@@ -59,7 +59,7 @@ async function getAIReply(chatId, text, personDescription) {
 
   const callGemini = async () => {
     return await ai.models.generateContent({
-      model:"gemini-2.5-flash",   // stable model
+      model:"gemini-2.0-flash",   // stable model
       contents: history.map(m => ({
         role: m.role === "model" ? "model" : "user",
         parts: m.parts
