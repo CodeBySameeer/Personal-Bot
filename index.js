@@ -1,11 +1,11 @@
 const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
-const { GoogleGenAI } = require("@google/genai");   // new official package
+const { GoogleGenAI } = require("@google/genai");
 const pino = require('pino');
 const http = require('http');
 const qrcode = require('qrcode');
 
-// ========== SETTINGS – CHANGE THIS ==========
-const API_KEY = process.env.GEMINI_API_KEY; // from your fresh Google Cloud project
+// ========== SETTINGS ==========
+const API_KEY = process.env.GEMINI_API_KEY;   // ← set this in Render environment variables
 
 const ALLOWED_CONTACTS = {
   "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. You have to say 'Goodmorning babee❤️' every 6 AM in Nepali time. We can talk romantic and casually. I tease her sometimes.",
@@ -13,7 +13,7 @@ const ALLOWED_CONTACTS = {
   "97798681187532": "she is classmate of my BE class",
   "9779868296832": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun.",
 };
-// =============================================
+// =============================
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
@@ -21,15 +21,16 @@ const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robo
 
 Language rules (strictly follow):
 Use informal romanized Nepali (no Devanagari script).
-Short forms: “tmro” (not timro), “xa” (not chha), “xainaa” (not chaina), “garnu”, “k” instead of “ke” (so “k ho?” not “ke ho?”).
+Short forms: “tmro” (not timro), “xa” (not chha), “xainaa” (not chaina), “garnu”, “k” instead of “ke” (so “k ho?” not “ke ho?” but in like uthisake ,garisake ).
 Use English word “name” (not “naam”).
 Mix English words sometimes if necessary not all the time :  of course, actually, by the way, so, ok, sorry, look, well, yeah, nice, wait, really, come on, etc.
 You may reply in full English if the other person speaks English or if you feel like it, but normally prefer romanized Nepali.
 Before starting chat analyze the person whose number is it and analyze the previous chat and talk like this        
--dont write too much just 4 , 5 word , just reply on short but if context come long then you can reply a bit more  but dont text more  
+-dont write too much upto 5 to 10 word and complete reply, just reply on short but if context come long then you can reply a bit more  but dont text more  
 
 Never act helpful like a robot. You can say “tha xaina”, “malai ni tha bhayena”, “hmm”, “eh”, “la”, “huss”, “tara”, etc.
 -Before starting chat analyze the person whose number is it and analyze the previous chat and talk like this
+and start conversation again with like aru vana ,ani aru sunau , keii vana na if they say umm ehh again again  and they reply tmi vana you can say somthing relatable.
 
 Examples:
 Other person: “tmro name k ho?”
@@ -46,20 +47,19 @@ You: “haha hoina yaar. ma samir hu. real human. robot jasto behave gardina ni.
 const chatHistory = new Map();
 let latestQR = null;
 
-// ---------- AI REPLY (Gemini) ----------
+// ---------- AI REPLY (with retry) ----------
 async function getAIReply(chatId, text, personDescription) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
   const history = chatHistory.get(chatId);
   history.push({ role: "user", parts: [{ text }] });
-  // Keep only last 5 messages (saves tokens & quota)
   if (history.length > 5) history.splice(0, history.length - 5);
 
   const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",   // confirmed working
+  const callGemini = async () => {
+    return await ai.models.generateContent({
+      model: "gemini-2.0-flash-001",   // stable model
       contents: history.map(m => ({
         role: m.role === "model" ? "model" : "user",
         parts: m.parts
@@ -70,11 +70,30 @@ async function getAIReply(chatId, text, personDescription) {
         temperature: 0.9,
       }
     });
+  };
+
+  try {
+    // First attempt
+    const response = await callGemini();
     const reply = response.candidates[0].content.parts[0].text.trim();
     history.push({ role: "model", parts: [{ text: reply }] });
     return reply;
   } catch (e) {
-    console.error("AI error:", e.message);
+    console.warn("AI first attempt failed:", e.message);
+    // Retry once if temporary error (503, 429, UNAVAILABLE)
+    if (e.message.includes('503') || e.message.includes('429') || e.message.includes('UNAVAILABLE')) {
+      console.log('⏳ Retrying in 5 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      try {
+        const response = await callGemini();
+        const reply = response.candidates[0].content.parts[0].text.trim();
+        history.push({ role: "model", parts: [{ text: reply }] });
+        return reply;
+      } catch (e2) {
+        console.error("AI retry also failed:", e2.message);
+      }
+    }
+    // Fallback if both attempts fail
     return "Sorry babeee, i lovee you ❤️💋";
   }
 }
@@ -93,7 +112,7 @@ function getPersonDescription(senderNumber, senderName) {
 }
 
 // ---------- WHATSAPP CONNECTION ----------
-let sock;   // will be set inside startBot
+let sock;
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_session");
@@ -125,7 +144,7 @@ async function startBot() {
     }
   });
 
-  // ---------- MESSAGE BATCHER (20-second window) ----------
+  // ---------- MESSAGE BATCHER (5-second window) ----------
   const pendingBatches = new Map();
 
   sock.ev.on("messages.upsert", async (msg) => {
@@ -148,8 +167,7 @@ async function startBot() {
 
     // ---- ADD TO BATCH ----
     if (!pendingBatches.has(chatId)) {
-      // first message in 20s window
-      const timer = setTimeout(() => processBatch(chatId, personDesc), 20_000);
+      const timer = setTimeout(() => processBatch(chatId, personDesc), 5_000);   // 5 seconds
       pendingBatches.set(chatId, {
         buffer: [text],
         timer: timer,
@@ -160,19 +178,16 @@ async function startBot() {
     } else {
       const batch = pendingBatches.get(chatId);
       if (batch.processing) {
-        // a reply is currently being generated; hold this message for next batch
         if (!batch.pendingBuffer) batch.pendingBuffer = [];
         batch.pendingBuffer.push(text);
         console.log(`⏳ [${senderName}] Queued while processing: "${text}"`);
       } else {
-        // still within the 20s timer window
         batch.buffer.push(text);
         console.log(`📥 [${senderName}] Added to batch: "${text}"`);
       }
     }
   });
 
-  // Process a batch – send one reply for all accumulated messages
   async function processBatch(chatId, personDesc) {
     const batch = pendingBatches.get(chatId);
     if (!batch) return;
@@ -187,19 +202,18 @@ async function startBot() {
     const senderName = personDesc.split(" ")[0] || "friend";
     console.log(`📩 [${senderName}] Batch (${allTexts.length} msgs):\n${combinedMessage}`);
 
-    // Get AI reply using combined message
     const reply = await getAIReply(chatId, combinedMessage, personDesc);
 
-    // Human-like delay before sending
-    const delay = Math.floor(Math.random() * 2000) + 3000;
+    // Human-like delay 3–5 seconds
+    const delay = Math.floor(Math.random() * 1000) + 2000;
     await new Promise(resolve => setTimeout(resolve, delay));
 
     await sock.sendMessage(chatId, { text: reply });
     console.log(`💬 Replied: ${reply}`);
 
-    // If messages arrived while we were processing, start a new batch immediately
+    // If queued messages arrived while processing, start a new batch
     if (batch.pendingBuffer && batch.pendingBuffer.length > 0) {
-      const newTimer = setTimeout(() => processBatch(chatId, personDesc), 20_000);
+      const newTimer = setTimeout(() => processBatch(chatId, personDesc), 5_000);   // 5 seconds
       pendingBatches.set(chatId, {
         buffer: [...batch.pendingBuffer],
         timer: newTimer,
