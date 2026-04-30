@@ -1,26 +1,21 @@
-const {
-  makeWASocket,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  DisconnectReason,
-} = require("@whiskeysockets/baileys");
-const Groq = require("groq-sdk");   // ✅ Groq import
-const pino = require("pino");
-const http = require("http");
-const qrcode = require("qrcode");
+const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
+const { GoogleGenAI } = require("@google/genai");   // ✅ new official package
+const pino = require('pino');
+const http = require('http');
+const qrcode = require('qrcode');
 
-// ========== SETTINGS – CHANGE THESE ==========
-const API_KEY = "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";   // from console.groq.com
+// ========== SETTINGS – CHANGE THIS ==========
+const API_KEY = 'AIzaSyCO-kDalURyflWqTvnTHN1lAN8XV-ozpcc';   // from your new project
 
 const ALLOWED_CONTACTS = {
-  "manikagurung": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
+  "manikagurung": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 A M its you task in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
   "Kalikoteeeyy Gangggg": "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
   "97798681187532": "she is classmate of my BE class",
   "9779868296832": "he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us and we ca make fun and we are funny each other",
 };
 // =============================================
 
-const groq = new Groq({ apiKey: API_KEY });   // ✅ single Groq client
+const ai = new GoogleGenAI({ apiKey: API_KEY });   // ✅ client for new package
 
 const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robot. You are a real human named Samir Kathayat. Behave like a normal person — casual, sometimes emotional, sometimes lazy, sometimes friendly. No “how can I help you” or “as an AI” type sentences. Just talk naturally like a friend or a regular person.
 Language rules (strictly follow):
@@ -41,42 +36,35 @@ You: “alxi lagya xa. tara thikai xu. timi kasto xa?”
 Other person: “yo bujhauna sakchau?”
 You: “eh, ma ni ali confused xu. actually ma sure xaina. sorry.”
 Other person: “can you help me please?”
-You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”
-Other person: “tmro name AI hoina?”
-You: “haha hoina yaar. ma samir hu. real human. robot jasto behave gardina ni.” talk with me now”
-Other person: “can you help me please?”
 You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”`;
 
 const chatHistory = new Map();
 let latestQR = null;
 
-// ---------- AI REPLY WITH GROQ ----------
+// ---------- AI REPLY (Gemini, new package) ----------
 async function getAIReply(chatId, text, personDescription) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
   const history = chatHistory.get(chatId);
   history.push({ role: "user", parts: [{ text }] });
   if (history.length > 20) history.splice(0, history.length - 20);
 
-  const systemInstruction =
-    BASE_SYSTEM_INSTRUCTION +
-    "\n\n" +
+  const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
   try {
-    const response = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",   // ✅ fast, free on Groq
-      messages: [
-        { role: "system", content: systemInstruction },
-        ...history.map(m => ({
-          role: m.role === "model" ? "assistant" : "user",
-          content: m.parts[0].text
-        }))
-      ],
-      max_tokens: 150,
-      temperature: 0.9,
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash-001",   // ✅ confirmed working with free tier + new package
+      contents: history.map(m => ({
+        role: m.role === "model" ? "model" : "user",
+        parts: m.parts
+      })),
+      config: {
+        systemInstruction: systemInstruction,
+        maxOutputTokens: 150,
+        temperature: 0.9,
+      }
     });
-
-    const reply = response.choices[0].message.content.trim();
+    const reply = response.candidates[0].content.parts[0].text.trim();
     history.push({ role: "model", parts: [{ text: reply }] });
     return reply;
   } catch (e) {
@@ -85,7 +73,7 @@ async function getAIReply(chatId, text, personDescription) {
   }
 }
 
-// ---------- FIND PERSON DESCRIPTION ----------
+// ---------- FIND PERSON DESCRIPTION (unchanged) ----------
 function getPersonDescription(senderNumber, senderName) {
   for (const key in ALLOWED_CONTACTS) {
     if (/^\d+$/.test(key) && key === senderNumber) {
@@ -150,7 +138,7 @@ async function startBot() {
     console.log(`📩 From ${senderNumber} (${senderName}): ${text}`);
     const reply = await getAIReply(m.key.remoteJid, text, personDesc);
 
-    // Random delay 3–5 seconds
+    // Random delay 3–5 seconds (human‑like)
     const delay = Math.floor(Math.random() * 2000) + 3000;
     await new Promise(resolve => setTimeout(resolve, delay));
 
