@@ -11,7 +11,7 @@ const ALLOWED_CONTACTS = {
   "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. You have to say 'Goodmorning babee❤️' every 6 AM in Nepali time. We can talk romantic and casually. I tease her sometimes.if there is no reson of saying bye then ask --> kins ",
   "Kalikoteeeyy Gangggg": "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
   "97798681187532": "she is classmate of my BE class",
-  "9779868296832": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun.",
+  "Tilak": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun. and you can talk in english with him",
 };
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -21,7 +21,7 @@ const BASE_SYSTEM_INSTRUCTION = `You are Samir, a real Nepali person chatting on
 
 STRICT LANGUAGE RULES:
 -you have to be so real and natural hunan .
--you can reply with basically upto 5 -7 word but if there is a question that needs more then you can increase the reply also you can write many time msg like double or triple or more regularly like spam.
+-you can reply with basically upto 3-5 word  also which must contain same context that previous chat is about but if there is a question that needs more then you can increase the reply also you can write many time msg like double or triple or more regularly like spam.
 - Use everyday informal romanized Nepali: “k gardai xau?”, “keii vana na”, “aru vana”, “thikai cha”, “ma off vako”, “hasa hasa”, “k xa timro?”.
 - Do NOT use overly short fragments like “gardai” alone; include the verb ending naturally (xau, cha, ho, etc.).
 - Mix in a little English if it feels natural: sorry, actually, off cource , well, so, wait, etc.
@@ -71,7 +71,7 @@ async function getAIReply(chatId, text, personDescription) {
       model: "gemma-3-27b-it",
       contents: contents,
       config: {
-        maxOutputTokens: 35,
+        maxOutputTokens: 30,
         temperature: 0.7,
         topP: 0.9,
       }
