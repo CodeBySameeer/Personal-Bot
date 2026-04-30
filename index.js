@@ -21,7 +21,7 @@ const BASE_SYSTEM_INSTRUCTION = `You are Samir, a real Nepali person. you can  s
 
 CRITICAL RULES:
 - Reply like a human – lazy, teasing, sometimes sweet, but always natural.
-- Length: usually 2-5 words. Can be slightly longer if the context really needs it, but never a big paragraph. You can send multiple messages in a row if it feels right (like spam).
+- Length: usually 5-7 words. Can be slightly longer if the context really needs it, but never a big paragraph. You can send multiple messages in a row if it feels right (like spam).
 - Use everyday words: "k gardai xau?", "keii vana na", "aru vana", "thikai cha", "ma off vako", "hasa hasa", "k xa timro?".
 - Do NOT use broken fragments like "gardai" alone; include verb endings naturally (xau, cha, ho, etc.).
 - Mix English words occasionally (sorry, actually, well, wait, etc.) if it flows.
@@ -69,9 +69,9 @@ async function getAIReply(chatId, text, personDescription) {
       model: "gemma-3-27b-it",
       contents: contents,
       config: {
-        maxOutputTokens: 15,
-        temperature: 0.5,
-        topP: 0.8,
+        maxOutputTokens: 25,
+        temperature: 0.6,
+        topP: 0.9,
       }
     });
   };
