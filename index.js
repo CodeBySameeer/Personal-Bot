@@ -5,7 +5,7 @@ const http = require('http');
 const qrcode = require('qrcode');
 
 // ========== SETTINGS – CHANGE THIS ==========
-const API_KEY = 'PASTE_YOUR_KEY_HERE';  // from your fresh Google Cloud project
+const API_KEY = process.env.GEMINI_API_KEY; // from your fresh Google Cloud project
 
 const ALLOWED_CONTACTS = {
   "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. You have to say 'Goodmorning babee❤️' every 6 AM in Nepali time. We can talk romantic and casually. I tease her sometimes.",
