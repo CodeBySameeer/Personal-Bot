@@ -5,7 +5,7 @@ const http = require('http');
 const qrcode = require('qrcode');
 
 // ========== SETTINGS ==========
-const API_KEY = process.env.GEMINI_API_KEY;   // ← set this in Render environment variables
+const API_KEY = process.env.GEMINI_API_KEY;   // 🔑 Set in Render environment
 
 const ALLOWED_CONTACTS = {
   "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. You have to say 'Goodmorning babee❤️' every 6 AM in Nepali time. We can talk romantic and casually. I tease her sometimes.if there is no reson of saying bye then ask --> kins ",
@@ -13,10 +13,10 @@ const ALLOWED_CONTACTS = {
   "97798681187532": "she is classmate of my BE class",
   "9779868296832": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun.",
 };
-// =============================
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
+// ---------- SYSTEM PROMPT (natural informal Nepali) ----------
 const BASE_SYSTEM_INSTRUCTION = `You are Samir, a real Nepali person chatting on WhatsApp. Reply in informal romanized Nepali. Your replies should be short and natural, like a close friend. Usually 2 to 5 words, never more than one short sentence.
 
 STRICT LANGUAGE RULES:
@@ -41,24 +41,26 @@ If the message is just emojis or very short, you can reply equally short, but st
 Other: "😌" → Samir: "kina k vayo ?"
 Other: "bye" → Samir: "bye bye"`; 
 
+// ---------- GLOBAL STATE ----------
 const chatHistory = new Map();
+const fallbackSent = new Map();   // track if fallback already sent per chat
 let latestQR = null;
+let sock;   // WhatsApp socket, set in startBot
 
-// ---------- AI REPLY (with retry) ----------
+// ---------- AI REPLY (Gemma) ----------
 async function getAIReply(chatId, text, personDescription) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
   const history = chatHistory.get(chatId);
   history.push({ role: "user", parts: [{ text }] });
+  // Keep last 5 messages
   if (history.length > 5) history.splice(0, history.length - 5);
 
   const fullSystemPrompt = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
   const contents = [];
-  contents.push({
-    role: "user",
-    parts: [{ text: fullSystemPrompt }]
-  });
+  // Gemma doesn't support systemInstruction config, so prepend as user message
+  contents.push({ role: "user", parts: [{ text: fullSystemPrompt }] });
   history.forEach(msg => {
     const role = msg.role === "model" ? "model" : "user";
     contents.push({ role: role, parts: msg.parts });
@@ -81,7 +83,7 @@ async function getAIReply(chatId, text, personDescription) {
     const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text;
     const reply = replyText ? replyText.trim() : "hmm";
     history.push({ role: "model", parts: [{ text: reply }] });
-    // reset fallback flag on success
+    // Success – reset fallback flag
     fallbackSent.set(chatId, false);
     return reply;
   } catch (e) {
@@ -96,32 +98,28 @@ async function getAIReply(chatId, text, personDescription) {
       return reply;
     } catch (e2) {
       console.error("Second attempt failed:", e2.message);
+      // Only send fallback once per conversation
       if (!fallbackSent.get(chatId)) {
         fallbackSent.set(chatId, true);
-        return "I'm out right now! Paxi bolumm laaa😅";
+        return "Sorry babeee, i lovee you ❤️💋";
       } else {
         console.log("⏩ Fallback already sent, skipping.");
-        return null;
+        return null;   // null = skip sending
       }
     }
   }
 }
+
 // ---------- PERSON DESCRIPTION ----------
 function getPersonDescription(senderNumber, senderName) {
   for (const key in ALLOWED_CONTACTS) {
-    if (/^\d+$/.test(key) && key === senderNumber) {
-      return ALLOWED_CONTACTS[key];
-    }
-    if (!/^\d+$/.test(key) && key.toLowerCase() === senderName.toLowerCase()) {
-      return ALLOWED_CONTACTS[key];
-    }
+    if (/^\d+$/.test(key) && key === senderNumber) return ALLOWED_CONTACTS[key];
+    if (!/^\d+$/.test(key) && key.toLowerCase() === senderName.toLowerCase()) return ALLOWED_CONTACTS[key];
   }
   return null;
 }
 
 // ---------- WHATSAPP CONNECTION ----------
-let sock;
-
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_session");
   const { version } = await fetchLatestBaileysVersion();
@@ -144,15 +142,14 @@ async function startBot() {
       return;
     }
     if (connection === "close") {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
       console.log("Connection closed. Reconnecting:", shouldReconnect);
       if (shouldReconnect) startBot();
       return;
     }
   });
 
-  // ---------- MESSAGE BATCHER (5-second window) ----------
+  // ---------- 5‑SECOND BATCHER ----------
   const pendingBatches = new Map();
 
   sock.ev.on("messages.upsert", async (msg) => {
@@ -173,16 +170,10 @@ async function startBot() {
     const text = m.message.conversation || m.message.extendedTextMessage?.text;
     if (!text) return;
 
-    // ---- ADD TO BATCH ----
     if (!pendingBatches.has(chatId)) {
-      const timer = setTimeout(() => processBatch(chatId, personDesc), 5_000);   // 5 seconds
-      pendingBatches.set(chatId, {
-        buffer: [text],
-        timer: timer,
-        processing: false,
-        personDesc: personDesc
-      });
-      console.log(`⏱️ [${senderName}] Batch started with: "${text}"`);
+      const timer = setTimeout(() => processBatch(chatId, personDesc), 5000);
+      pendingBatches.set(chatId, { buffer: [text], timer, processing: false, personDesc });
+      console.log(`⏱️ [${senderName}] Batch started: "${text}"`);
     } else {
       const batch = pendingBatches.get(chatId);
       if (batch.processing) {
@@ -199,36 +190,31 @@ async function startBot() {
   async function processBatch(chatId, personDesc) {
     const batch = pendingBatches.get(chatId);
     if (!batch) return;
-
     batch.processing = true;
     clearTimeout(batch.timer);
     batch.timer = null;
-    const allTexts = batch.buffer;
+    const combinedMessage = batch.buffer.join("\n");
     pendingBatches.delete(chatId);
 
-    const combinedMessage = allTexts.join("\n");
     const senderName = personDesc.split(" ")[0] || "friend";
-    console.log(`📩 [${senderName}] Batch (${allTexts.length} msgs):\n${combinedMessage}`);
+    console.log(`📩 [${senderName}] Batch (${batch.buffer.length} msgs):\n${combinedMessage}`);
 
     const reply = await getAIReply(chatId, combinedMessage, personDesc);
 
-    // Human-like delay 3–5 seconds
-    const delay = Math.floor(Math.random() * 1000) + 2000;
+    // if fallback was already sent and getAIReply returned null, skip
+    if (reply === null) return;
+
+    const delay = Math.floor(Math.random() * 2000) + 3000;
     await new Promise(resolve => setTimeout(resolve, delay));
 
     await sock.sendMessage(chatId, { text: reply });
     console.log(`💬 Replied: ${reply}`);
 
-    // If queued messages arrived while processing, start a new batch
+    // handle messages that queued while processing
     if (batch.pendingBuffer && batch.pendingBuffer.length > 0) {
-      const newTimer = setTimeout(() => processBatch(chatId, personDesc), 5_000);   // 5 seconds
-      pendingBatches.set(chatId, {
-        buffer: [...batch.pendingBuffer],
-        timer: newTimer,
-        processing: false,
-        personDesc: personDesc
-      });
-      console.log(`🔄 [${senderName}] New batch started from queued messages.`);
+      const newTimer = setTimeout(() => processBatch(chatId, personDesc), 5000);
+      pendingBatches.set(chatId, { buffer: [...batch.pendingBuffer], timer: newTimer, processing: false, personDesc });
+      console.log(`🔄 [${senderName}] New batch from queued messages.`);
     }
   }
 
@@ -241,19 +227,10 @@ const server = http.createServer(async (req, res) => {
   if (req.url === "/qr" && latestQR) {
     const qrImage = await qrcode.toDataURL(latestQR);
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(`
-            <html>
-            <head><title>Scan QR to connect</title></head>
-            <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif;">
-                <h1>Scan this QR code with WhatsApp</h1>
-                <img src="${qrImage}" alt="QR Code" style="max-width:300px;"/>
-                <p>Open WhatsApp → Settings → Linked Devices → Link a Device → Scan QR</p>
-            </body>
-            </html>
-        `);
+    res.end(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><h1>Scan QR</h1><img src="${qrImage}" style="max-width:300px;"/></body></html>`);
   } else if (req.url === "/qr" && !latestQR) {
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end("<h2>✅ Already logged in. No QR needed.</h2>");
+    res.end("<h2>✅ Already logged in.</h2>");
   } else {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("Bot is running");
@@ -261,7 +238,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🌐 Health server running on port ${PORT}`);
+  console.log(`🌐 Health server on port ${PORT}`);
 });
 
 startBot();
