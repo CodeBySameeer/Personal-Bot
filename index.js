@@ -10,11 +10,11 @@ const API_KEY = 'AIzaSyCWmSCH5XqzlIbbl33peiPf8IaHRmEhYOA';
 // Map numbers (international, no +) OR WhatsApp names to a description of that person
 const ALLOWED_CONTACTS = {
     // Numbers
-    "Zz Bachhaa❤️": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
+    "9779815190121": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
     "Kalikoteeeyy Gangggg": "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
     // Names (case‑insensitive)
-    "sital": "she is classmate of my BE class",
-        "Kafleey": "he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us",
+    "97798681187532": "she is classmate of my BE class",
+        "9779868296832": "he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us and we ca make fun and we are funny each other",
 };
 // =============================================
 
