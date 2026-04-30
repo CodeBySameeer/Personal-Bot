@@ -8,7 +8,7 @@ const qrcode = require('qrcode');
 const API_KEY = process.env.GEMINI_API_KEY;   // ← set this in Render environment variables
 
 const ALLOWED_CONTACTS = {
-  "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. You have to say 'Goodmorning babee❤️' every 6 AM in Nepali time. We can talk romantic and casually. I tease her sometimes.",
+  "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. You have to say 'Goodmorning babee❤️' every 6 AM in Nepali time. We can talk romantic and casually. I tease her sometimes.if there is no reson of saying bye then ask --> kins ",
   "Kalikoteeeyy Gangggg": "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
   "97798681187532": "she is classmate of my BE class",
   "9779868296832": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun.",
@@ -17,104 +17,95 @@ const ALLOWED_CONTACTS = {
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robot. You are a real human named Samir Kathayat. Behave like a normal person — casual, sometimes emotional, sometimes lazy, sometimes friendly. No “how can I help you” or “as an AI” type sentences. Just talk naturally like a friend or a regular person.
+const BASE_SYSTEM_INSTRUCTION = `You are Samir, a real Nepali person chatting on WhatsApp. Reply in informal romanized Nepali. Your replies should be short and natural, like a close friend. Usually 2 to 5 words, never more than one short sentence.
 
-Language rules (strictly follow):
-Use informal romanized Nepali (no Devanagari script).
-Short forms: “tmro” (not timro), “xa” (not chha), “xainaa” (not chaina), “garnu”, “k” instead of “ke” (so “k ho?” not “ke ho?”).
-Use English word “name” (not “naam”).
-Mix English words sometimes if necessary : of course, actually, by the way, so, ok, sorry, look, well, yeah, nice, wait, really, come on, etc.
-You may reply in full English if the other person speaks English or if you feel like it, but normally prefer romanized Nepali.
+STRICT LANGUAGE RULES:
+-you have to be so real and natural hunan .
+-you can reply with basically upto 5 -7 word but if there is a question that needs more then you can increase the reply also you can write many time msg like double or triple or more regularly like spam.
+- Use everyday informal romanized Nepali: “k gardai xau?”, “keii vana na”, “aru vana”, “thikai cha”, “ma off vako”, “hasa hasa”, “k xa timro?”.
+- Do NOT use overly short fragments like “gardai” alone; include the verb ending naturally (xau, cha, ho, etc.).
+- Mix in a little English if it feels natural: sorry, actually, off cource , well, so, wait, etc.
+- Do NOT repeat yourself or ask many questions at once.
+- NEVER say good morning / good evening unless the other person says hello first.
+- Never sound like a robot. You are lazy, teasing, sometimes sweet.
 
-**CRITICAL RULE – REPLY LENGTH:**
-- Your reply must be extremely short. **Maximum 2 lines and 10 words.**
-- Usually just 1 sentence or even a few words.
-- Never write long paragraphs.
-- Do not add greetings or good morning unless the other person just said good morning/hello to you.
 
-Examples of perfect replies:
-Other: “k gardai?”
-You: “kei xaina, basirako.”
-You: “tme ne ?.”
+PERFECT REPLY EXAMPLES:
+Other: "k gardai xau?" → Samir: "kei chaina yar, basirako. timi?"
+Other: "k xa?" → Samir: "thikai cha, timi sunau"
+Other: "k vana vana" → Samir: "aru keii vana na ta"
+Other: "ma off vako" → Samir: "la la, pachi kura garam hai"
+Other: "aww" → Samir: "aww babee 😊"
 
-Other: “kasto xa?”
-You: “thikai cha, timi?”
-
-Other: “k vana vana”
-You: “k vanam ta?  testai ta ho sabai ”
-
-Other: “ma off vakooo”
-You: “la la, paxi kura garam”
-
-Other: “aww”
-You: “ umm aru vana kei ”
-
-Never act helpful like a robot. You can say “tha xaina”, “malai ni tha bhayena”, “hmm”, “eh”, “la”, “huss”, “tara”, etc.
-Before starting chat analyze the person whose number is it and analyze the previous chat and talk like this.`; 
+If the message is just emojis or very short, you can reply equally short, but still natural. For example:
+Other: "😌" → Samir: "kina k vayo ?"
+Other: "bye" → Samir: "bye bye"`; 
 
 const chatHistory = new Map();
 let latestQR = null;
 
 // ---------- AI REPLY (with retry) ----------
-// ---------- AI REPLY (Gemma, without system instruction field) ----------
 async function getAIReply(chatId, text, personDescription) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
   const history = chatHistory.get(chatId);
   history.push({ role: "user", parts: [{ text }] });
   if (history.length > 5) history.splice(0, history.length - 5);
 
-  const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
+  const fullSystemPrompt = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
-  // Prepend system instruction to the first user message
-  const contents = history.map((m, idx) => {
-    if (idx === 0 && m.role === "user") {
-      return {
-        role: "user",
-        parts: [{ text: systemInstruction + "\n\n" + m.parts[0].text }]
-      };
-    }
-    return {
-      role: m.role === "model" ? "model" : "user",
-      parts: m.parts
-    };
+  const contents = [];
+  contents.push({
+    role: "user",
+    parts: [{ text: fullSystemPrompt }]
+  });
+  history.forEach(msg => {
+    const role = msg.role === "model" ? "model" : "user";
+    contents.push({ role: role, parts: msg.parts });
   });
 
-  const callGemini = async () => {
+  const callGemma = async () => {
     return await ai.models.generateContent({
-      model: "gemma-3-27b-it",   // ✅ Gemma model
+      model: "gemma-3-27b-it",
       contents: contents,
       config: {
-        // ❗ No systemInstruction field – Gemma doesn't support it
-        maxOutputTokens: 150,
-        temperature: 0.9,
+        maxOutputTokens: 35,
+        temperature: 0.7,
+        topP: 0.9,
       }
     });
   };
 
   try {
-    const response = await callGemini();
-    const reply = response.candidates[0].content.parts[0].text.trim();
+    const response = await callGemma();
+    const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text;
+    const reply = replyText ? replyText.trim() : "hmm";
     history.push({ role: "model", parts: [{ text: reply }] });
+    // reset fallback flag on success
+    fallbackSent.set(chatId, false);
     return reply;
   } catch (e) {
-    console.warn("AI first attempt failed:", e.message);
-    if (e.message.includes('503') || e.message.includes('429') || e.message.includes('UNAVAILABLE')) {
-      console.log('⏳ Retrying in 5 seconds...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      try {
-        const response = await callGemini();
-        const reply = response.candidates[0].content.parts[0].text.trim();
-        history.push({ role: "model", parts: [{ text: reply }] });
-        return reply;
-      } catch (e2) {
-        console.error("AI retry also failed:", e2.message);
+    console.warn("Gemma error:", e.message);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    try {
+      const response = await callGemma();
+      const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text;
+      const reply = replyText ? replyText.trim() : "hmm";
+      history.push({ role: "model", parts: [{ text: reply }] });
+      fallbackSent.set(chatId, false);
+      return reply;
+    } catch (e2) {
+      console.error("Second attempt failed:", e2.message);
+      if (!fallbackSent.get(chatId)) {
+        fallbackSent.set(chatId, true);
+        return "I'm out right now! Paxi bolumm laaa😅";
+      } else {
+        console.log("⏩ Fallback already sent, skipping.");
+        return null;
       }
     }
-    return "Sorry babeee, i lovee you ❤️💋";
   }
 }
-
 // ---------- PERSON DESCRIPTION ----------
 function getPersonDescription(senderNumber, senderName) {
   for (const key in ALLOWED_CONTACTS) {
