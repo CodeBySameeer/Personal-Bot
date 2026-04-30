@@ -4,10 +4,10 @@
   "scripts": {
     "start": "node startup-cleaner.js && node index.js"
   },
-  "dependencies": {
+"dependencies": {
     "@whiskeysockets/baileys": "latest",
-    "@google/generative-ai": "latest",
+    "@google/genai": "latest",
     "pino": "latest",
     "qrcode": "latest"
-  }
+}}
 }
