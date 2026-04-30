@@ -65,18 +65,18 @@ async function getAIReply(chatId, text, personDescription) {
     `About the person you are talking to: ${personDescription}`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: history.map((m) => ({
+const response = await ai.models.generateContent({
+    model: "gemini-1.5-flash-latest",
+    contents: history.map(m => ({
         role: m.role === "model" ? "model" : "user",
-        parts: m.parts,
-      })),
-      config: {
+        parts: m.parts
+    })),
+    config: {
         systemInstruction: systemInstruction,
         maxOutputTokens: 150,
         temperature: 0.9,
-      },
-    });
+    }
+});
     const reply = response.candidates[0].content.parts[0].text.trim();
     history.push({ role: "model", parts: [{ text: reply }] });
     return reply;
