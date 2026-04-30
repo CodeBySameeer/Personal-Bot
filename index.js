@@ -59,8 +59,8 @@ async function getAIReply(chatId, text, personDescription) {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash-001",   // confirmed working
-      contents: history.map(m => ({
+      model: "gemini-2.5-flash",   // confirmed working
+      contents: history.map(m) => ({
         role: m.role === "model" ? "model" : "user",
         parts: m.parts
       })),
@@ -75,7 +75,7 @@ async function getAIReply(chatId, text, personDescription) {
     return reply;
   } catch (e) {
     console.error("AI error:", e.message);
-    return "ekxin paxii kura garam hai, aile busy xu 😅";
+    return "Sorry babeee, i lovee you ❤️💋";
   }
 }
 
