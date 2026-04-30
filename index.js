@@ -10,7 +10,7 @@ const http = require("http");
 const qrcode = require("qrcode");
 
 // ========== SETTINGS – CHANGE THESE ==========
-const API_KEY = "AIzaSyBZZYRdR8-hbaobY1-UxmILWTvZcmUFC-c"; // ⚠️ Make sure this key is still valid
+const API_KEY = "AIzaSyBrNeInnShNFhp25LSqTbOhA5BjsziVi4c"; // ⚠️ Make sure this key is still valid
 
 const ALLOWED_CONTACTS = {
   "manikagurung":"She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
@@ -62,7 +62,7 @@ async function getAIReply(chatId, text, personDescription) {
 
   try {
 const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
+  model: "gemini-2.0-flash-001",
     contents: history.map(m => ({
         role: m.role === "model" ? "model" : "user",
         parts: m.parts
