@@ -4,10 +4,10 @@
   "scripts": {
     "start": "node index.js"
   },
-  "dependencies": {
-    "@whiskeysockets/baileys": "latest",
-    "@google/genai": "latest",
-    "pino": "latest",
-    "qrcode": "latest"
-  }
+"dependencies": {
+   "@whiskeysockets/baileys": "latest",
+   "groq-sdk": "latest",
+   "pino": "latest",
+   "qrcode": "latest"
+}
 }
