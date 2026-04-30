@@ -1,33 +1,36 @@
 const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
-const { GoogleGenAI } = require("@google/genai");   // ✅ new official package
+const { GoogleGenAI } = require("@google/genai");   // new official package
 const pino = require('pino');
 const http = require('http');
 const qrcode = require('qrcode');
 
 // ========== SETTINGS – CHANGE THIS ==========
-const API_KEY = 'AIzaSyD6DPvnf4HpCFApfgN61DoDHHHgjh1VpCc';   // from your new project
+const API_KEY = 'AIzaSyD6DPvnf4HpCFApfgN61DoDHHHgjh1VpCc';   // from your fresh Google Cloud project
 
 const ALLOWED_CONTACTS = {
-  "manikagurung": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 A M its you task in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
-  "Kalikoteeeyy Gangggg": "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
+  "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. You have to say 'Goodmorning babee❤️' every 6 AM in Nepali time. We can talk romantic and casually. I tease her sometimes.",
+  "Kalikoteeeyy Gangggg": "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
   "97798681187532": "she is classmate of my BE class",
-  "9779868296832": "he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us and we ca make fun and we are funny each other",
+  "9779868296832": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun.",
 };
 // =============================================
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });   // ✅ client for new package
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robot. You are a real human named Samir Kathayat. Behave like a normal person — casual, sometimes emotional, sometimes lazy, sometimes friendly. No “how can I help you” or “as an AI” type sentences. Just talk naturally like a friend or a regular person.
+
 Language rules (strictly follow):
 Use informal romanized Nepali (no Devanagari script).
 Short forms: “tmro” (not timro), “xa” (not chha), “xainaa” (not chaina), “garnu”, “k” instead of “ke” (so “k ho?” not “ke ho?”).
 Use English word “name” (not “naam”).
-Mix English words somtimes if neccesorry not all the time :  of course, actually, by the way, so, ok, sorry, look, well, yeah, nice, wait, really, come on, etc.
+Mix English words sometimes if necessary not all the time :  of course, actually, by the way, so, ok, sorry, look, well, yeah, nice, wait, really, come on, etc.
 You may reply in full English if the other person speaks English or if you feel like it, but normally prefer romanized Nepali.
 Before starting chat analyze the person whose number is it and analyze the previous chat and talk like this        
 -dont write too much just 4 , 5 word , just reply on short but if context come long then you can reply a bit more  but dont text more  
-Never act helpful like a robot. You can say “tha xaina”, “malai ni tha bhayena”, “hmm”, “eh”, “la”, “huss”, “tara”, etc. -dont write too much just 4 , 5 word , just reply on short but if context come long then you can reply a bit more  but dont text more
+
+Never act helpful like a robot. You can say “tha xaina”, “malai ni tha bhayena”, “hmm”, “eh”, “la”, “huss”, “tara”, etc.
 -Before starting chat analyze the person whose number is it and analyze the previous chat and talk like this
+
 Examples:
 Other person: “tmro name k ho?”
 You: “Mero name Samir Kathayat ho. tmro name k xa?”
@@ -36,24 +39,27 @@ You: “alxi lagya xa. tara thikai xu. timi kasto xa?”
 Other person: “yo bujhauna sakchau?”
 You: “eh, ma ni ali confused xu. actually ma sure xaina. sorry.”
 Other person: “can you help me please?”
-You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”`;
+You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”
+Other person: “tmro name AI hoina?”
+You: “haha hoina yaar. ma samir hu. real human. robot jasto behave gardina ni.”`;
 
 const chatHistory = new Map();
 let latestQR = null;
 
-// ---------- AI REPLY (Gemini, new package) ----------
+// ---------- AI REPLY (Gemini) ----------
 async function getAIReply(chatId, text, personDescription) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
   const history = chatHistory.get(chatId);
   history.push({ role: "user", parts: [{ text }] });
-  if (history.length > 20) history.splice(0, history.length - 20);
+  // Keep only last 5 messages (saves tokens & quota)
+  if (history.length > 5) history.splice(0, history.length - 5);
 
   const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash-001",   // ✅ confirmed working with free tier + new package
+      model: "gemini-2.0-flash-001",   // confirmed working
       contents: history.map(m => ({
         role: m.role === "model" ? "model" : "user",
         parts: m.parts
@@ -73,7 +79,7 @@ async function getAIReply(chatId, text, personDescription) {
   }
 }
 
-// ---------- FIND PERSON DESCRIPTION (unchanged) ----------
+// ---------- PERSON DESCRIPTION ----------
 function getPersonDescription(senderNumber, senderName) {
   for (const key in ALLOWED_CONTACTS) {
     if (/^\d+$/.test(key) && key === senderNumber) {
@@ -87,11 +93,13 @@ function getPersonDescription(senderNumber, senderName) {
 }
 
 // ---------- WHATSAPP CONNECTION ----------
+let sock;   // will be set inside startBot
+
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_session");
   const { version } = await fetchLatestBaileysVersion();
 
-  const sock = makeWASocket({
+  sock = makeWASocket({
     version,
     auth: state,
     logger: pino({ level: "silent" }),
@@ -117,7 +125,9 @@ async function startBot() {
     }
   });
 
-  // ---------- MESSAGE HANDLER ----------
+  // ---------- MESSAGE BATCHER (20-second window) ----------
+  const pendingBatches = new Map();
+
   sock.ev.on("messages.upsert", async (msg) => {
     const m = msg.messages[0];
     if (!m.message || msg.type !== "notify") return;
@@ -125,6 +135,7 @@ async function startBot() {
 
     const senderNumber = m.key.remoteJid.split("@")[0];
     const senderName = m.pushName || "";
+    const chatId = m.key.remoteJid;
 
     const personDesc = getPersonDescription(senderNumber, senderName);
     if (!personDesc) {
@@ -135,16 +146,69 @@ async function startBot() {
     const text = m.message.conversation || m.message.extendedTextMessage?.text;
     if (!text) return;
 
-    console.log(`📩 From ${senderNumber} (${senderName}): ${text}`);
-    const reply = await getAIReply(m.key.remoteJid, text, personDesc);
+    // ---- ADD TO BATCH ----
+    if (!pendingBatches.has(chatId)) {
+      // first message in 20s window
+      const timer = setTimeout(() => processBatch(chatId, personDesc), 20_000);
+      pendingBatches.set(chatId, {
+        buffer: [text],
+        timer: timer,
+        processing: false,
+        personDesc: personDesc
+      });
+      console.log(`⏱️ [${senderName}] Batch started with: "${text}"`);
+    } else {
+      const batch = pendingBatches.get(chatId);
+      if (batch.processing) {
+        // a reply is currently being generated; hold this message for next batch
+        if (!batch.pendingBuffer) batch.pendingBuffer = [];
+        batch.pendingBuffer.push(text);
+        console.log(`⏳ [${senderName}] Queued while processing: "${text}"`);
+      } else {
+        // still within the 20s timer window
+        batch.buffer.push(text);
+        console.log(`📥 [${senderName}] Added to batch: "${text}"`);
+      }
+    }
+  });
 
-    // Random delay 3–5 seconds (human‑like)
+  // Process a batch – send one reply for all accumulated messages
+  async function processBatch(chatId, personDesc) {
+    const batch = pendingBatches.get(chatId);
+    if (!batch) return;
+
+    batch.processing = true;
+    clearTimeout(batch.timer);
+    batch.timer = null;
+    const allTexts = batch.buffer;
+    pendingBatches.delete(chatId);
+
+    const combinedMessage = allTexts.join("\n");
+    const senderName = personDesc.split(" ")[0] || "friend";
+    console.log(`📩 [${senderName}] Batch (${allTexts.length} msgs):\n${combinedMessage}`);
+
+    // Get AI reply using combined message
+    const reply = await getAIReply(chatId, combinedMessage, personDesc);
+
+    // Human-like delay before sending
     const delay = Math.floor(Math.random() * 2000) + 3000;
     await new Promise(resolve => setTimeout(resolve, delay));
 
-    await sock.sendMessage(m.key.remoteJid, { text: reply });
+    await sock.sendMessage(chatId, { text: reply });
     console.log(`💬 Replied: ${reply}`);
-  });
+
+    // If messages arrived while we were processing, start a new batch immediately
+    if (batch.pendingBuffer && batch.pendingBuffer.length > 0) {
+      const newTimer = setTimeout(() => processBatch(chatId, personDesc), 20_000);
+      pendingBatches.set(chatId, {
+        buffer: [...batch.pendingBuffer],
+        timer: newTimer,
+        processing: false,
+        personDesc: personDesc
+      });
+      console.log(`🔄 [${senderName}] New batch started from queued messages.`);
+    }
+  }
 
   sock.ev.on("creds.update", saveCreds);
 }
