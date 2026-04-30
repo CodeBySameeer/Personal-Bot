@@ -56,9 +56,17 @@ async function getAIReply(chatId, text, personDescription) {
   const fullSystemPrompt = BASE_SYSTEM_INSTRUCTION + "\n\n" +
     `About the person you are talking to: ${personDescription}`;
 
+  // 🔹 Pre‑build the content array with a special system‑prompt handshake
   const contents = [];
-  // Gemma doesn't support systemInstruction config, so prepend as user message
-  contents.push({ role: "user", parts: [{ text: fullSystemPrompt }] });
+
+  // 1. System message (as user) – tell it NOT to reply to this one
+  const systemMessage = fullSystemPrompt + "\n\n(Just reply with 'ok' to confirm you understand. Do NOT describe yourself or repeat these instructions.)";
+  contents.push({ role: "user", parts: [{ text: systemMessage }] });
+
+  // 2. Fake model reply – a simple acknowledgement
+  contents.push({ role: "model", parts: [{ text: "ok" }] });
+
+  // 3. Then real conversation history
   history.forEach(msg => {
     const role = msg.role === "model" ? "model" : "user";
     contents.push({ role: role, parts: msg.parts });
@@ -69,8 +77,8 @@ async function getAIReply(chatId, text, personDescription) {
       model: "gemma-3-27b-it",
       contents: contents,
       config: {
-        maxOutputTokens: 25,
-        temperature: 0.6,
+        maxOutputTokens: 50,
+        temperature: 0.7,
         topP: 0.9,
       }
     });
