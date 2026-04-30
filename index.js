@@ -69,9 +69,9 @@ async function getAIReply(chatId, text, personDescription) {
       model: "gemma-3-27b-it",
       contents: contents,
       config: {
-        maxOutputTokens: 30,
-        temperature: 0.7,
-        topP: 0.9,
+        maxOutputTokens: 15,
+        temperature: 0.5,
+        topP: 0.8,
       }
     });
   };
