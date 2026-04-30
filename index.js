@@ -4,30 +4,24 @@ const {
   fetchLatestBaileysVersion,
   DisconnectReason,
 } = require("@whiskeysockets/baileys");
-const groq = new Groq({ apiKey: API_KEY });
-
-
+const Groq = require("groq-sdk");   // ✅ Groq import
 const pino = require("pino");
 const http = require("http");
 const qrcode = require("qrcode");
 
 // ========== SETTINGS – CHANGE THESE ==========
-const API_KEY = "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"; // ⚠️ Make sure this key is still valid
+const API_KEY = "PASTE_YOUR_GROQ_API_KEY_HERE";   // from console.groq.com
 
 const ALLOWED_CONTACTS = {
-  "manikagurung":"She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
-  "Kalikoteeeyy Gangggg":
-    "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
+  "manikagurung": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
+  "Kalikoteeeyy Gangggg": "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
   "97798681187532": "she is classmate of my BE class",
-  "9779868296832":"he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us and we ca make fun and we are funny each other",
+  "9779868296832": "he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us and we ca make fun and we are funny each other",
 };
 // =============================================
 
-const groq = new Groq({ apiKey: API_KEY });
+const groq = new Groq({ apiKey: API_KEY });   // ✅ single Groq client
 
- // ✅ new client
-
-// Global behaviour (used for any person who is allowed)
 const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robot. You are a real human named Samir Kathayat. Behave like a normal person — casual, sometimes emotional, sometimes lazy, sometimes friendly. No “how can I help you” or “as an AI” type sentences. Just talk naturally like a friend or a regular person.
 Language rules (strictly follow):
 Use informal romanized Nepali (no Devanagari script).
@@ -47,40 +41,46 @@ You: “alxi lagya xa. tara thikai xu. timi kasto xa?”
 Other person: “yo bujhauna sakchau?”
 You: “eh, ma ni ali confused xu. actually ma sure xaina. sorry.”
 Other person: “can you help me please?”
+You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”
+Other person: “tmro name AI hoina?”
+You: “haha hoina yaar. ma samir hu. real human. robot jasto behave gardina ni.” talk with me now”
+Other person: “can you help me please?”
 You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”`;
 
 const chatHistory = new Map();
 let latestQR = null;
 
-// ---------- AI REPLY WITH PERSONALIZED PROMPT (new package) ----------
+// ---------- AI REPLY WITH GROQ ----------
 async function getAIReply(chatId, text, personDescription) {
-    if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
-    const history = chatHistory.get(chatId);
-    history.push({ role: "user", parts: [{ text }] });
-    if (history.length > 20) history.splice(0, history.length - 20);
+  if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
+  const history = chatHistory.get(chatId);
+  history.push({ role: "user", parts: [{ text }] });
+  if (history.length > 20) history.splice(0, history.length - 20);
 
-    const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
-        `About the person you are talking to: ${personDescription}`;
+  const systemInstruction =
+    BASE_SYSTEM_INSTRUCTION +
+    "\n\n" +
+    `About the person you are talking to: ${personDescription}`;
 
-    try {
-        const response = await groq.chat.completions.create({
-            model: "meta-llama/llama-4-scout-17b-16e-instruct",
-            messages: [
-                { role: "system", content: systemInstruction },
-                ...history.map(m => ({
-                    role: m.role === "model" ? "assistant" : "user",
-                    content: m.parts[0].text
-                }))
-            ],
-            max_tokens: 150,
-            temperature: 0.9,
-        });
+  try {
+    const response = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",   // ✅ fast, free on Groq
+      messages: [
+        { role: "system", content: systemInstruction },
+        ...history.map(m => ({
+          role: m.role === "model" ? "assistant" : "user",
+          content: m.parts[0].text
+        }))
+      ],
+      max_tokens: 150,
+      temperature: 0.9,
+    });
 
-        const reply = response.choices[0].message.content.trim();
-        history.push({ role: "model", parts: [{ text: reply }] });
-        return reply;
-    } catch (e) {
-        console.error("AI error:", e.message);
+    const reply = response.choices[0].message.content.trim();
+    history.push({ role: "model", parts: [{ text: reply }] });
+    return reply;
+  } catch (e) {
+    console.error("AI error:", e.message);
     return "ekxin paxii kura garam hai, aile busy xu 😅";
   }
 }
@@ -147,15 +147,15 @@ async function startBot() {
     const text = m.message.conversation || m.message.extendedTextMessage?.text;
     if (!text) return;
 
-console.log(`📩 From ${senderNumber} (${senderName}): ${text}`);
-const reply = await getAIReply(m.key.remoteJid, text, personDesc);
+    console.log(`📩 From ${senderNumber} (${senderName}): ${text}`);
+    const reply = await getAIReply(m.key.remoteJid, text, personDesc);
 
-// 🔹 Wait 3 to 5 seconds before replying (random)
-const delay = Math.floor(Math.random() * 2000) + 3000;   // 3000–4999 ms
-await new Promise(resolve => setTimeout(resolve, delay));
+    // Random delay 3–5 seconds
+    const delay = Math.floor(Math.random() * 2000) + 3000;
+    await new Promise(resolve => setTimeout(resolve, delay));
 
-await sock.sendMessage(m.key.remoteJid, { text: reply });
-console.log(`💬 Replied: ${reply}`);
+    await sock.sendMessage(m.key.remoteJid, { text: reply });
+    console.log(`💬 Replied: ${reply}`);
   });
 
   sock.ev.on("creds.update", saveCreds);
