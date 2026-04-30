@@ -5,7 +5,7 @@ const http = require('http');
 const qrcode = require('qrcode');
 
 // ========== SETTINGS – CHANGE THIS ==========
-const API_KEY = 'AIzaSyCO-kDalURyflWqTvnTHN1lAN8XV-ozpcc';   // from your new project
+const API_KEY = 'AIzaSyD6DPvnf4HpCFApfgN61DoDHHHgjh1VpCc';   // from your new project
 
 const ALLOWED_CONTACTS = {
   "manikagurung": "She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 A M its you task in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
