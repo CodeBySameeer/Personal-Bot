@@ -13,12 +13,11 @@ const qrcode = require("qrcode");
 const API_KEY = "AIzaSyCWmSCH5XqzlIbbl33peiPf8IaHRmEhYOA"; // ⚠️ Make sure this key is still valid
 
 const ALLOWED_CONTACTS = {
-  manikagurung:"She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
+  "manikagurung":"She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
   "Kalikoteeeyy Gangggg":
     "This is the group where all are they from kalikot and we are in same class we make fun some time,discussion somtime you can ans the question sometime. ",
-  97798681187532: "she is classmate of my BE class",
-  9779868296832:
-    "he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us and we ca make fun and we are funny each other",
+  "97798681187532": "she is classmate of my BE class",
+  "9779868296832":"he is my best friend we talk so rough like muji ,machikney , randi , lado and othe nepali rough words its normal for us and we ca make fun and we are funny each other",
 };
 // =============================================
 
