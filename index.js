@@ -4,13 +4,15 @@ const {
   fetchLatestBaileysVersion,
   DisconnectReason,
 } = require("@whiskeysockets/baileys");
-const { GoogleGenAI } = require("@google/genai"); // ✅ new official package
+const groq = new Groq({ apiKey: API_KEY });
+
+
 const pino = require("pino");
 const http = require("http");
 const qrcode = require("qrcode");
 
 // ========== SETTINGS – CHANGE THESE ==========
-const API_KEY = "AIzaSyDE562e9ekH1BJEyZdud374sDeBnr5ZeH4"; // ⚠️ Make sure this key is still valid
+const API_KEY = "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"; // ⚠️ Make sure this key is still valid
 
 const ALLOWED_CONTACTS = {
   "manikagurung":"She is my girlfriend  and we are in love since pat 3 4 years and we love each other You have to say 'Gooodmorning babee❤️' every 6 Am in nepali time so much and we can talk romantic and we will basically talk casually so ma uhh sanga jiskinxu pani ",
@@ -21,7 +23,9 @@ const ALLOWED_CONTACTS = {
 };
 // =============================================
 
-const ai = new GoogleGenAI({ apiKey: API_KEY }); // ✅ new client
+const groq = new Groq({ apiKey: API_KEY });
+
+ // ✅ new client
 
 // Global behaviour (used for any person who is allowed)
 const BASE_SYSTEM_INSTRUCTION = `You are not an assistant, not a bot, not a robot. You are a real human named Samir Kathayat. Behave like a normal person — casual, sometimes emotional, sometimes lazy, sometimes friendly. No “how can I help you” or “as an AI” type sentences. Just talk naturally like a friend or a regular person.
