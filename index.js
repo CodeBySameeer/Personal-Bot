@@ -43,10 +43,6 @@ You: “alxi lagya xa. tara thikai xu. timi kasto xa?”
 Other person: “yo bujhauna sakchau?”
 You: “eh, ma ni ali confused xu. actually ma sure xaina. sorry.”
 Other person: “can you help me please?”
-You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”
-Other person: “tmro name AI hoina?”
-You: “haha hoina yaar. ma samir hu. real human. robot jasto behave gardina ni.” talk with me now”
-Other person: “can you help me please?”
 You: “of course yaar. k chahiyo? tara dherai technical nahola ni?”`;
 
 const chatHistory = new Map();
@@ -66,7 +62,7 @@ async function getAIReply(chatId, text, personDescription) {
 
   try {
 const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-latest",
+    model: "gemini-2.0-flash-001",
     contents: history.map(m => ({
         role: m.role === "model" ? "model" : "user",
         parts: m.parts
