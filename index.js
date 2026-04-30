@@ -50,34 +50,33 @@ let latestQR = null;
 
 // ---------- AI REPLY WITH PERSONALIZED PROMPT (new package) ----------
 async function getAIReply(chatId, text, personDescription) {
-  if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
-  const history = chatHistory.get(chatId);
-  history.push({ role: "user", parts: [{ text }] });
-  if (history.length > 20) history.splice(0, history.length - 20);
+    if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
+    const history = chatHistory.get(chatId);
+    history.push({ role: "user", parts: [{ text }] });
+    if (history.length > 20) history.splice(0, history.length - 20);
 
-  const systemInstruction =
-    BASE_SYSTEM_INSTRUCTION +
-    "\n\n" +
-    `About the person you are talking to: ${personDescription}`;
+    const systemInstruction = BASE_SYSTEM_INSTRUCTION + "\n\n" +
+        `About the person you are talking to: ${personDescription}`;
 
-  try {
-const response = await ai.models.generateContent({
-  model: "gemini-2.0-flash-001",
-    contents: history.map(m => ({
-        role: m.role === "model" ? "model" : "user",
-        parts: m.parts
-    })),
-    config: {
-        systemInstruction: systemInstruction,
-        maxOutputTokens: 150,
-        temperature: 0.9,
-  }
-});
-    const reply = response.candidates[0].content.parts[0].text.trim();
-    history.push({ role: "model", parts: [{ text: reply }] });
-    return reply;
-  } catch (e) {
-    console.error("AI error:", e.message);
+    try {
+        const response = await groq.chat.completions.create({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages: [
+                { role: "system", content: systemInstruction },
+                ...history.map(m => ({
+                    role: m.role === "model" ? "assistant" : "user",
+                    content: m.parts[0].text
+                }))
+            ],
+            max_tokens: 150,
+            temperature: 0.9,
+        });
+
+        const reply = response.choices[0].message.content.trim();
+        history.push({ role: "model", parts: [{ text: reply }] });
+        return reply;
+    } catch (e) {
+        console.error("AI error:", e.message);
     return "ekxin paxii kura garam hai, aile busy xu 😅";
   }
 }
