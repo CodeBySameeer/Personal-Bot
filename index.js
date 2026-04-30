@@ -62,7 +62,7 @@ async function getAIReply(chatId, text, personDescription) {
 
   try {
 const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash-001",
+    model: "gemini-2.0-flash",
     contents: history.map(m => ({
         role: m.role === "model" ? "model" : "user",
         parts: m.parts
