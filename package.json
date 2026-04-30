@@ -2,12 +2,12 @@
   "name": "nepali-ai-bot",
   "version": "1.0.0",
   "scripts": {
-    "start": "node startup-cleaner.js && node index.js"
+    "start": "node index.js"
   },
-"dependencies": {
+  "dependencies": {
     "@whiskeysockets/baileys": "latest",
     "@google/genai": "latest",
     "pino": "latest",
     "qrcode": "latest"
-}}
+  }
 }
