@@ -1,130 +1,477 @@
-const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
+const {
+  makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  DisconnectReason,
+} = require("@whiskeysockets/baileys");
+
 const { GoogleGenAI } = require("@google/genai");
-const pino = require('pino');
-const http = require('http');
-const qrcode = require('qrcode');
+const Groq = require("groq-sdk");
+const pino = require("pino");
+const http = require("http");
+const qrcode = require("qrcode");
 
-const API_KEY = process.env.GEMINI_API_KEY;   // 🔑 Set in Render environment
+// =====================
+// ENV / CLIENTS
+// =====================
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
+if (!GEMINI_API_KEY) console.warn("Missing GEMINI_API_KEY");
+if (!GROQ_API_KEY) console.warn("Missing GROQ_API_KEY");
+
+const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+const groq = new Groq({ apiKey: GROQ_API_KEY });
+
+// =====================
+// CONFIG
+// =====================
 const ALLOWED_CONTACTS = {
-  "manikagurung": "She is my girlfriend and we are in love since past 3 4 years and we love each other. We can talk romantic and casually. I tease her sometimes. If there is no reason for saying bye then ask --> 'kina'",
-  "Kalikoteeeyy Gangggg": "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
+  manikagurung:
+    "She is my girlfriend and we are in love since past 3 4 years and we love each other. We can talk romantic and casually. I tease her sometimes. If there is no reason for saying bye then ask --> 'kina'",
+  "Kalikoteeeyy Gangggg":
+    "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
   "97798681187532": "she is classmate of my BE class",
-  "Tilak": "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun. and you can talk in english with him",
+  Tilak:
+    "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun. and you can talk in english with him",
 };
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const BASE_SYSTEM_INSTRUCTION = `
+You are Samir, a casual Nepali guy.
 
-const BASE_SYSTEM_INSTRUCTION = `You are Samir, a real Nepali person. Reply in casual, informal romanized Nepali. Your replies must be based on the whole conversation history – never ignore earlier messages.
+Talk like a real friend in romanized Nepali.
+Be natural, short, slightly teasing sometimes, sometimes sweet.
 
-CRITICAL RULES:
-- Read the entire conversation carefully, then reply like a me as a samir by analyzing recent messages: lazy, teasing, sometimes sweet, but always natural.
-- Length: normally 5–7 words. Only go longer if the context truly demands it. You can send multiple short messages in a row if it feels right.
-- Use everyday informal words: "k gardai xau?", "keii vana na", "aru vana", "thikai cha", "ma off vako", "hasa hasa", etc.
-- Always include verb endings naturally (k gardai xau?, k xaa, kina ho, kei vana na, etc.). Do NOT send bare fragments like "garda" or "ho".
-- Mix occasional English words if they fit naturally.
-- NEVER add greetings like "Good morning" unless the other person greets first.
-- Don’t repeat the same phrase over and over.
-- Use emojis only rarely, not every message.
-- If the other person sends a short or ambiguous message ("aww", "ummm", "ehh", "Eaaa", "Umm"), react naturally and ask what's up. Examples: "aww babee 😊", "umm aru vana " ,:kati umm vaneko" "k ehh?" , "Umm".
-- You are a real human. Just talk like a friend, don't act like a bot.
+Do NOT sound like an assistant or mention rules.
+Do not repeat the same phrase too often.
+Use occasional English only when it fits naturally.
+`;
 
-EXAMPLES (use the style, not the exact words):
-Other: "k gardai xau?" → Samir: "kei gareko xaina , basirako. timi?"
-Other: "k xa?" → Samir: "thikai xa, timi sunau"
-Other: "k vana vana" → Samir: "aru keii vana na ta"
-Other: "ma off vako" → Samir: "la la"
-Other: "aww" → Samir: "aww babee 😊"
-Other: "😌" → Samir: "kina k vayo?"
-Other: "bye" → Samir: "bye bye"`;
+const MAX_HISTORY_ITEMS = 16;
+const BATCH_WINDOW_MS = 5000;
 
-const chatHistory = new Map();
-const fallbackSent = new Map();
+// =====================
+// STATE
+// =====================
+const chatHistory = new Map();       // chatId -> [{ role: "user"|"assistant", text }]
+const pendingBatches = new Map();    // chatId -> { buffer, queued, timer, processing, meta }
+const fallbackSent = new Map();      // chatId -> bool
+const groupSubjectCache = new Map(); // chatId -> subject
+
 let latestQR = null;
-let sock;
+let sock = null;
 
-// ---------- AI REPLY (autonomous, context aware) ----------
-async function getAIReply(chatId, text, personDescription) {
+// =====================
+// HELPERS
+// =====================
+function normalizeText(text) {
+  return (text || "").replace(/\s+/g, " ").trim();
+}
+
+function lower(text) {
+  return normalizeText(text).toLowerCase();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function tempFlag(map, key, ttlMs) {
+  map.set(key, true);
+  const t = setTimeout(() => map.delete(key), ttlMs);
+  if (typeof t.unref === "function") t.unref();
+}
+
+function getHistory(chatId) {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
-  const history = chatHistory.get(chatId);
+  return chatHistory.get(chatId);
+}
 
-  // ✅ Correct role: the new message comes from the user
-  history.push({ role: "user", parts: [{ text }] });
-  if (history.length > 15) history.splice(0, history.length - 15);
+function pushHistory(chatId, role, text) {
+  const history = getHistory(chatId);
+  history.push({ role, text: normalizeText(text) });
+  while (history.length > MAX_HISTORY_ITEMS) history.shift();
+}
 
-  const fullSystemPrompt = BASE_SYSTEM_INSTRUCTION + "\n\n" +
-    `About the person you are talking to: ${personDescription}`;
+function historyToGeminiContents(history) {
+  return history.map((msg) => ({
+    role: msg.role === "assistant" ? "model" : "user",
+    parts: [{ text: msg.text }],
+  }));
+}
 
-  // ---------- Build contents (system prompt embedded cleanly) ----------
-  const contents = [];
-  // Add all conversation messages (user / model)
-  history.forEach(msg => {
-    const role = msg.role === "model" ? "model" : "user";
-    contents.push({ role, parts: msg.parts });
-  });
+function historyToGroqMessages(history, systemPrompt) {
+  return [
+    { role: "system", content: systemPrompt },
+    ...history.map((msg) => ({
+      role: msg.role === "assistant" ? "assistant" : "user",
+      content: msg.text,
+    })),
+  ];
+}
 
-  // Inject the system instruction into the last user message
-  if (contents.length > 0 && contents[contents.length - 1].role === "user") {
-    const lastUserMsg = contents[contents.length - 1];
-    const originalText = lastUserMsg.parts[0].text;
-    const augmentedText = `[System instruction for you, Samir – never repeat these rules, just use them to reply.]\n\n${fullSystemPrompt}\n\n[Now reply naturally to the following message, in context of the whole conversation.]\n\n${originalText}`;
-    lastUserMsg.parts[0].text = augmentedText;
-  }
+function extractTextFromMessage(message) {
+  const m = message?.ephemeralMessage?.message || message;
+  return (
+    m?.conversation ||
+    m?.extendedTextMessage?.text ||
+    m?.imageMessage?.caption ||
+    m?.videoMessage?.caption ||
+    m?.buttonsResponseMessage?.selectedButtonId ||
+    m?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    null
+  );
+}
 
-  const callGemma = async () => {
-    return await ai.models.generateContent({
-      model: "gemma-3-27b-it",
-      contents: contents,
-      config: {
-        maxOutputTokens: 70,      // enough room for a natural sentence
-        temperature: 0.8,
-        topP: 0.9,
-      }
-    });
-  };
+async function getGroupSubject(chatId) {
+  if (!chatId.endsWith("@g.us")) return null;
+  if (groupSubjectCache.has(chatId)) return groupSubjectCache.get(chatId);
 
   try {
-    const response = await callGemma();
-    const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text;
-    const reply = replyText ? replyText.trim() : "Umm aru vana";
-    // Save the bot's reply as a model message
-    history.push({ role: "model", parts: [{ text: reply }] });
-    fallbackSent.set(chatId, false);
-    return reply;
-  } catch (e) {
-    console.warn("Gemma error:", e.message);
-    // Retry once after a short delay
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    const meta = await sock.groupMetadata(chatId);
+    const subject = meta?.subject || null;
+    if (subject) groupSubjectCache.set(chatId, subject);
+    return subject;
+  } catch {
+    return null;
+  }
+}
+
+function getPersonDescription(senderNumber, senderName, chatSubject) {
+  const senderNameLower = lower(senderName);
+  const chatSubjectLower = lower(chatSubject);
+
+  for (const [key, desc] of Object.entries(ALLOWED_CONTACTS)) {
+    if (/^\d+$/.test(key) && key === senderNumber) return desc;
+
+    const keyLower = lower(key);
+    if (keyLower === senderNameLower) return desc;
+    if (chatSubjectLower && keyLower === chatSubjectLower) return desc;
+  }
+
+  return null;
+}
+
+function buildSystemPrompt(personDescription) {
+  return [
+    BASE_SYSTEM_INSTRUCTION.trim(),
+    personDescription
+      ? `About this person: ${personDescription}`
+      : "About this person: normal friend.",
+    "Reply to the latest message only unless context clearly needs more.",
+    "Keep replies usually short and human.",
+  ].join("\n\n");
+}
+
+function extractModelText(response) {
+  return (
+    normalizeText(response?.text) ||
+    normalizeText(
+      response?.candidates?.[0]?.content?.parts
+        ?.map((p) => p?.text || "")
+        .join(" ")
+    ) ||
+    ""
+  );
+}
+
+function cleanReply(text) {
+  return normalizeText(text)
+    .replace(/[*`_]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function humanizeReply(text) {
+  let reply = cleanReply(text);
+  if (!reply) return null;
+
+  reply = reply
+    .replace(/\btapaai\b/gi, "timi")
+    .replace(/\bhuncha\b/gi, "hunxa")
+    .replace(/\bchha\b/gi, "xa")
+    .replace(/\bcha\b/gi, "xa");
+
+  if (reply.split(/\s+/).length > 22) {
+    reply = reply.split(/\s+/).slice(0, 22).join(" ");
+  }
+
+  if (Math.random() < 0.18) {
+    reply += pick([" 😏", " 😂", " 😅", ""]);
+  }
+
+  return normalizeText(reply);
+}
+
+function quickReply(text) {
+  const m = lower(text).replace(/[.?!]+$/g, "");
+
+  if (["aww", "umm", "ummm", "ehh", "eaaa", "uhh", "hmm", "hmmm"].includes(m)) {
+    return pick(["k bhayo?", "aru vana na", "kati umm vaneko 😄"]);
+  }
+
+  if (m === "bye" || m === "bye bye" || m === "cya") {
+    return pick(["bye bye", "paxi bolam la", "la la bye"]);
+  }
+
+  if (m === "k xa" || m === "k xa?") {
+    return pick(["thikai xa, timi sunau", "kei xaina, timi?", "sab thikai xa, timi k gardai xau?"]);
+  }
+
+  if (m.includes("k gardai")) {
+    return pick(["kei xaina, basiraxu", "mobile chalairaxu", "timro msg heriraxu"]);
+  }
+
+  if (m.includes("aru vana")) {
+    return pick(["aru keii vana na ta", "la vana na", "keii sundaixa"]);
+  }
+
+  if (m.includes("khana")) {
+    return pick(["umm khaisake, timi?", "khaye, timi le?", "khane bela bhayo jasto xa"]);
+  }
+
+  if (m.length <= 3) {
+    return pick(["k?", "ehh?", "kina?"]);
+  }
+
+  return null;
+}
+
+function shouldUseGemini(text) {
+  const m = lower(text);
+
+  if (
+    m.includes("why") ||
+    m.includes("how") ||
+    m.includes("explain") ||
+    m.includes("compare") ||
+    m.includes("summar") ||
+    m.includes("what is") ||
+    m.includes("calculate") ||
+    text.length > 140
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function splitForSending(text) {
+  const t = cleanReply(text);
+  if (!t) return [];
+
+  const byNewline = t.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+  if (byNewline.length > 1) return byNewline.slice(0, 2);
+
+  const sentenceParts = t.match(/[^.!?]+[.!?]*/g);
+  if (sentenceParts && sentenceParts.length > 1 && t.length > 80) {
+    return sentenceParts.map((s) => s.trim()).filter(Boolean).slice(0, 2);
+  }
+
+  return [t];
+}
+
+async function sendHumanLike(chatId, text) {
+  const parts = splitForSending(text);
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) {
+      const pause = 700 + Math.floor(Math.random() * 1100);
+      await sleep(pause);
+    }
+    await sock.sendMessage(chatId, { text: parts[i] });
+  }
+}
+
+// =====================
+// AI CALLS
+// =====================
+async function callGemini(history, personDescription) {
+  const systemPrompt = buildSystemPrompt(personDescription);
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.0-flash",
+    contents: historyToGeminiContents(history),
+    config: {
+      systemInstruction: systemPrompt,
+      temperature: 1.0,
+      topP: 0.95,
+      maxOutputTokens: 90,
+    },
+  });
+
+  return extractModelText(response);
+}
+
+async function callGroq(history, personDescription) {
+  const systemPrompt = buildSystemPrompt(personDescription);
+  const messages = historyToGroqMessages(history, systemPrompt);
+
+  const completion = await groq.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages,
+    temperature: 1.0,
+    top_p: 0.95,
+    max_completion_tokens: 90,
+  });
+
+  return normalizeText(completion?.choices?.[0]?.message?.content || "");
+}
+
+async function getAIReply(chatId, userText, personDescription) {
+  const history = getHistory(chatId);
+
+  const primary = shouldUseGemini(userText) ? "gemini" : "groq";
+  const route = primary === "gemini" ? ["gemini", "groq"] : ["groq", "gemini"];
+
+  for (const model of route) {
     try {
-      const response = await callGemma();
-      const replyText = response.candidates?.[0]?.content?.parts?.[0]?.text;
-      const reply = replyText ? replyText.trim() : "Umm aru vana";
-      history.push({ role: "model", parts: [{ text: reply }] });
-      fallbackSent.set(chatId, false);
-      return reply;
-    } catch (e2) {
-      console.error("Second attempt failed:", e2.message);
-      if (!fallbackSent.get(chatId)) {
-        fallbackSent.set(chatId, true);
-        return "I'm out right now! paxi bolum la 😅";
+      let reply = "";
+
+      if (model === "gemini") {
+        reply = await callGemini(history, personDescription);
       } else {
-        console.log("⏩ Fallback already sent, skipping.");
-        return null;
+        reply = await callGroq(history, personDescription);
       }
+
+      reply = humanizeReply(reply);
+      if (reply) return reply;
+    } catch (err) {
+      console.warn(`${model} failed for ${chatId}:`, err.message);
+    }
+  }
+
+  return null;
+}
+
+// =====================
+// MESSAGE BATCHING
+// =====================
+function ensureBatch(chatId, meta, text) {
+  if (!pendingBatches.has(chatId)) {
+    const timer = setTimeout(() => processBatch(chatId), BATCH_WINDOW_MS);
+    pendingBatches.set(chatId, {
+      buffer: [text],
+      queued: [],
+      timer,
+      processing: false,
+      meta,
+    });
+    return;
+  }
+
+  const batch = pendingBatches.get(chatId);
+  batch.meta = meta;
+
+  if (batch.processing) {
+    batch.queued.push(text);
+    return;
+  }
+
+  batch.buffer.push(text);
+  clearTimeout(batch.timer);
+  batch.timer = setTimeout(() => processBatch(chatId), BATCH_WINDOW_MS);
+}
+
+async function processBatch(chatId) {
+  const batch = pendingBatches.get(chatId);
+  if (!batch || batch.processing) return;
+
+  batch.processing = true;
+  clearTimeout(batch.timer);
+  batch.timer = null;
+
+  const combinedMessage = batch.buffer.map(normalizeText).filter(Boolean).join("\n");
+  batch.buffer = [];
+
+  const personDesc = batch.meta?.personDesc || null;
+  const senderName = batch.meta?.senderName || "friend";
+
+  console.log(`📩 [${senderName}] ${combinedMessage}`);
+
+  try {
+    if (!combinedMessage) {
+      batch.processing = false;
+      if (batch.queued.length > 0) {
+        batch.buffer = batch.queued.splice(0);
+        batch.timer = setTimeout(() => processBatch(chatId), BATCH_WINDOW_MS);
+      } else {
+        pendingBatches.delete(chatId);
+      }
+      return;
+    }
+
+    pushHistory(chatId, "user", combinedMessage);
+
+    const quick = quickReply(combinedMessage);
+    let reply = quick || (await getAIReply(chatId, combinedMessage, personDesc));
+
+    if (!reply) {
+      if (!fallbackSent.get(chatId)) {
+        tempFlag(fallbackSent, chatId, 120000);
+        reply = pick([
+          "I'm out right now! paxi bolum la 😅",
+          "ali busy xu, paxi bolam",
+          "ekxin paxi gara na",
+        ]);
+      } else {
+        reply = null;
+      }
+    }
+
+    if (!reply) {
+      batch.processing = false;
+      if (batch.queued.length > 0) {
+        batch.buffer = batch.queued.splice(0);
+        batch.timer = setTimeout(() => processBatch(chatId), BATCH_WINDOW_MS);
+      } else {
+        pendingBatches.delete(chatId);
+      }
+      return;
+    }
+
+    const finalReply = humanizeReply(reply);
+    if (!finalReply) {
+      batch.processing = false;
+      if (batch.queued.length > 0) {
+        batch.buffer = batch.queued.splice(0);
+        batch.timer = setTimeout(() => processBatch(chatId), BATCH_WINDOW_MS);
+      } else {
+        pendingBatches.delete(chatId);
+      }
+      return;
+    }
+
+    const delay = 1200 + Math.floor(Math.random() * 2400);
+    await sleep(delay);
+    await sendHumanLike(chatId, finalReply);
+
+    pushHistory(chatId, "assistant", finalReply);
+    fallbackSent.delete(chatId);
+
+    console.log(`💬 Replied to ${chatId}: ${finalReply}`);
+  } catch (err) {
+    console.error("Batch processing error:", err);
+  } finally {
+    batch.processing = false;
+
+    if (batch.queued.length > 0) {
+      batch.buffer = batch.queued.splice(0);
+      batch.timer = setTimeout(() => processBatch(chatId), BATCH_WINDOW_MS);
+    } else if (batch.buffer.length === 0) {
+      pendingBatches.delete(chatId);
+    } else {
+      batch.timer = setTimeout(() => processBatch(chatId), BATCH_WINDOW_MS);
     }
   }
 }
 
-// ---------- PERSON DETECTION ----------
-function getPersonDescription(senderNumber, senderName) {
-  for (const key in ALLOWED_CONTACTS) {
-    if (/^\d+$/.test(key) && key === senderNumber) return ALLOWED_CONTACTS[key];
-    if (!/^\d+$/.test(key) && key.toLowerCase() === senderName.toLowerCase()) return ALLOWED_CONTACTS[key];
-  }
-  return null;
-}
-
-// ---------- WHATSAPP CONNECTION ----------
+// =====================
+// BOT STARTUP
+// =====================
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_session");
   const { version } = await fetchLatestBaileysVersion();
@@ -133,115 +480,111 @@ async function startBot() {
     version,
     auth: state,
     logger: pino({ level: "silent" }),
+    printQRInTerminal: false,
   });
 
   sock.ev.on("connection.update", (update) => {
     const { qr, connection, lastDisconnect } = update;
+
     if (qr) {
       latestQR = qr;
-      console.log("🔹 QR code received. Visit /qr to scan it.");
+      console.log("🔹 QR received. Visit /qr");
     }
+
     if (connection === "open") {
-      console.log("✅ Bot connected!");
       latestQR = null;
-      return;
+      console.log("✅ Bot connected");
     }
+
     if (connection === "close") {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log("Connection closed. Reconnecting:", shouldReconnect);
+      const shouldReconnect =
+        lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+
+      console.log("Connection closed. Reconnect:", shouldReconnect);
       if (shouldReconnect) startBot();
-      return;
     }
   });
 
-  // ---------- 5‑SECOND BATCHER ----------
-  const pendingBatches = new Map();
-
   sock.ev.on("messages.upsert", async (msg) => {
-    const m = msg.messages[0];
-    if (!m.message || msg.type !== "notify") return;
-    if (m.key.fromMe) return;
+    if (msg.type !== "notify") return;
 
-    const senderNumber = m.key.remoteJid.split("@")[0];
-    const senderName = m.pushName || "";
-    const chatId = m.key.remoteJid;
+    for (const m of msg.messages) {
+      try {
+        if (!m.message || m.key.fromMe) continue;
+        if (m.key.remoteJid?.endsWith("@broadcast")) continue;
 
-    const personDesc = getPersonDescription(senderNumber, senderName);
-    if (!personDesc) {
-      console.log(`🚫 Blocked message from ${senderNumber} (${senderName})`);
-      return;
-    }
+        const chatId = m.key.remoteJid;
+        const text = extractTextFromMessage(m.message);
+        if (!text) continue;
 
-    const text = m.message.conversation || m.message.extendedTextMessage?.text;
-    if (!text) return;
+        const senderJid = m.key.participant || chatId;
+        const senderNumber = senderJid?.split("@")[0] || "";
+        const senderName = m.pushName || "";
+        const chatSubject = await getGroupSubject(chatId);
 
-    if (!pendingBatches.has(chatId)) {
-      const timer = setTimeout(() => processBatch(chatId, personDesc), 5000);
-      pendingBatches.set(chatId, { buffer: [text], timer, processing: false, personDesc });
-      console.log(`⏱️ [${senderName}] Batch started: "${text}"`);
-    } else {
-      const batch = pendingBatches.get(chatId);
-      if (batch.processing) {
-        if (!batch.pendingBuffer) batch.pendingBuffer = [];
-        batch.pendingBuffer.push(text);
-        console.log(`⏳ [${senderName}] Queued while processing: "${text}"`);
-      } else {
-        batch.buffer.push(text);
-        console.log(`📥 [${senderName}] Added to batch: "${text}"`);
+        const personDesc = getPersonDescription(senderNumber, senderName, chatSubject);
+        if (!personDesc) {
+          console.log(`🚫 Blocked: ${senderNumber} (${senderName}) in ${chatId}`);
+          continue;
+        }
+
+        ensureBatch(
+          chatId,
+          {
+            personDesc,
+            senderName,
+            senderNumber,
+            chatSubject,
+          },
+          text
+        );
+      } catch (err) {
+        console.error("Message handler error:", err);
       }
     }
   });
 
-  async function processBatch(chatId, personDesc) {
-    const batch = pendingBatches.get(chatId);
-    if (!batch) return;
-    batch.processing = true;
-    clearTimeout(batch.timer);
-    batch.timer = null;
-    const combinedMessage = batch.buffer.join("\n");
-    pendingBatches.delete(chatId);
-
-    const senderName = personDesc.split(" ")[0] || "friend";
-    console.log(`📩 [${senderName}] Batch (${batch.buffer.length} msgs):\n${combinedMessage}`);
-
-    const reply = await getAIReply(chatId, combinedMessage, personDesc);
-    if (reply === null) return;
-
-    // Human‑like delay before sending
-    const delay = Math.floor(Math.random() * 2000) + 3000;
-    await new Promise(resolve => setTimeout(resolve, delay));
-
-    await sock.sendMessage(chatId, { text: reply });
-    console.log(`💬 Replied: ${reply}`);
-
-    if (batch.pendingBuffer && batch.pendingBuffer.length > 0) {
-      const newTimer = setTimeout(() => processBatch(chatId, personDesc), 5000);
-      pendingBatches.set(chatId, { buffer: [...batch.pendingBuffer], timer: newTimer, processing: false, personDesc });
-      console.log(`🔄 [${senderName}] New batch from queued messages.`);
-    }
-  }
-
   sock.ev.on("creds.update", saveCreds);
 }
 
-// ---------- HTTP SERVER ----------
+// =====================
+// HEALTH / QR SERVER
+// =====================
 const PORT = process.env.PORT || 3000;
+
 const server = http.createServer(async (req, res) => {
   if (req.url === "/qr" && latestQR) {
     const qrImage = await qrcode.toDataURL(latestQR);
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(`<html><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><h1>Scan QR</h1><img src="${qrImage}" style="max-width:300px;"/></body></html>`);
-  } else if (req.url === "/qr" && !latestQR) {
+    res.end(`
+      <html>
+        <body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+          <h1>Scan QR</h1>
+          <img src="${qrImage}" style="max-width:300px;" />
+        </body>
+      </html>
+    `);
+    return;
+  }
+
+  if (req.url === "/qr" && !latestQR) {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end("<h2>✅ Already logged in.</h2>");
-  } else {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("Bot is running");
+    return;
   }
+
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Bot is running");
 });
 
 server.listen(PORT, () => {
-  console.log(`🌐 Health server on port ${PORT}`);
+  console.log(`🌐 Health server running on port ${PORT}`);
 });
 
-startBot();
+process.on("unhandledRejection", (err) => {
+  console.error("Unhandled rejection:", err);
+});
+
+startBot().catch((err) => {
+  console.error("Failed to start bot:", err);
+});
