@@ -31,20 +31,21 @@ const ALLOWED_CONTACTS = {
     "She is my girlfriend and we are in love since past 3 4 years and we love each other. We can talk romantic and casually. I tease her sometimes. If there is no reason for saying bye then ask --> 'kina'",
   "Kalikoteeeyy Gangggg":
     "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
-  "97798681187532": "she is classmate of my BE class",
+  "MU Fest":
+    "This is the group where we are participating in a engineering fest and we disscuss about our project which self healing concrete with ai monitoring so yo ucan reead the perevious masages and reply with them i can sometime make fun with them but we will be disscussing about our project ",
   Tilak:
     "he is my best friend, we talk rough, use muji, machikney, randi, lado, etc. It's normal. We make fun. and you can talk in english with him",
 };
 
+// ✅ Always reply in simple English – understands all input languages
 const BASE_SYSTEM_INSTRUCTION = `
 You are Samir, a casual Nepali guy.
 
-Talk like a real friend in romanized Nepali.
+Reply in simple, clear English. You understand any input language (Nepali, romanized Nepali, or English) but always answer in English.
 Be natural, short, slightly teasing sometimes, sometimes sweet.
-
 Do NOT sound like an assistant or mention rules.
 Do not repeat the same phrase too often.
-Use occasional English only when it fits naturally.
+Keep replies usually 2–5 words, maximum one short sentence.
 `;
 
 const MAX_HISTORY_ITEMS = 16;
@@ -186,15 +187,12 @@ function cleanReply(text) {
     .trim();
 }
 
+// ✅ English replies only – no Nepali word replacements
 function humanizeReply(text) {
   let reply = cleanReply(text);
   if (!reply) return null;
 
-  reply = reply
-    .replace(/\btapaai\b/gi, "timi")
-    .replace(/\bhuncha\b/gi, "hunxa")
-    .replace(/\bchha\b/gi, "xa")
-    .replace(/\bcha\b/gi, "xa");
+  // No longer forcibly replace Nepali words with other Nepali spellings
 
   if (reply.split(/\s+/).length > 22) {
     reply = reply.split(/\s+/).slice(0, 22).join(" ");
@@ -207,35 +205,43 @@ function humanizeReply(text) {
   return normalizeText(reply);
 }
 
+// ✅ Quick replies rewritten in English (still triggers on Nepali & English inputs)
 function quickReply(text) {
   const m = lower(text).replace(/[.?!]+$/g, "");
 
+  // Minimal / ambiguous responses → ask for more
   if (["aww", "umm", "ummm", "ehh", "eaaa", "uhh", "hmm", "hmmm"].includes(m)) {
-    return pick(["k bhayo?", "aru vana na", "kati umm vaneko 😄"]);
+    return pick(["what happened?", "tell me more", "why so quiet?"]);
   }
 
+  // Goodbyes
   if (m === "bye" || m === "bye bye" || m === "cya") {
-    return pick(["bye bye", "paxi bolam la", "la la bye"]);
+    return pick(["bye bye", "talk later", "see you"]);
   }
 
-  if (m === "k xa" || m === "k xa?") {
-    return pick(["thikai xa, timi sunau", "kei xaina, timi?", "sab thikai xa, timi k gardai xau?"]);
+  // How are you – matches Nepali and English variants
+  if (m === "k xa" || m === "k xa?" || m === "k cha" || m === "k cha?" || m === "how are you" || m === "how r u") {
+    return pick(["I'm fine, you?", "doing good, you?", "all good, what about you?"]);
   }
 
-  if (m.includes("k gardai")) {
-    return pick(["kei xaina, basiraxu", "mobile chalairaxu", "timro msg heriraxu"]);
+  // What are you doing
+  if (m.includes("k gardai") || m.includes("what are you doing") || m.includes("wbu") || m.includes("wby")) {
+    return pick(["nothing much, you?", "just relaxing", "chilling, you?"]);
   }
 
-  if (m.includes("aru vana")) {
-    return pick(["aru keii vana na ta", "la vana na", "keii sundaixa"]);
+  // Ask for more
+  if (m.includes("aru vana") || m.includes("tell me more") || m.includes("say something")) {
+    return pick(["what should I say?", "you say something", "anything you want"]);
   }
 
-  if (m.includes("khana")) {
-    return pick(["umm khaisake, timi?", "khaye, timi le?", "khane bela bhayo jasto xa"]);
+  // Food
+  if (m.includes("khana") || m.includes("food") || m.includes("ate")) {
+    return pick(["yeah I ate, you?", "I had food, did you?", "just finished eating"]);
   }
 
+  // Very short message → ask what they mean
   if (m.length <= 3) {
-    return pick(["k?", "ehh?", "kina?"]);
+    return pick(["what?", "hmm?", "what do you mean?"]);
   }
 
   return null;
@@ -412,9 +418,10 @@ async function processBatch(chatId) {
     if (!reply) {
       if (!fallbackSent.get(chatId)) {
         tempFlag(fallbackSent, chatId, 120000);
+        // ✅ Fallback messages in English
         reply = pick([
-          "I'm out right now! paxi bolum la 😅",
-          "ali busy xu, paxi bolam",
+          "I'm out right now! talk later 😅",
+          "busy rn, paxi bolam",
           "ekxin paxi gara na",
         ]);
       } else {
