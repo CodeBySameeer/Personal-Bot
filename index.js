@@ -27,7 +27,7 @@ const groq = new Groq({ apiKey: GROQ_API_KEY });
 // CONFIG
 // =====================
 const ALLOWED_CONTACTS = {
-  `manikagurung:
+  manikagurung:
     ""
    सुदिप समर्पण:
     " He is my  classmate  he will talk with you in english so that you have to reply in english sometime nepali romanized you can make fun with him dont use so much emoji and the act like you are a robot or any bot just talk in a casual way .",
