@@ -28,7 +28,7 @@ const groq = new Groq({ apiKey: GROQ_API_KEY });
 // =====================
 const ALLOWED_CONTACTS = {
   manikagurung:
-    "She is my girlfriend and we are in love since past 3 4 years and we love each other. We can talk romantic and casually. I tease her sometimes. If there is no reason for saying bye then ask --> 'kina'",
+    "",
   "Kalikoteeeyy Gangggg":
     "This is the group where all are from Kalikot, same class. We make fun, sometimes discuss. You can answer questions sometimes.",
   "MU Fest":
